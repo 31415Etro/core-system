@@ -1,0 +1,50 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/.next-local/
+/.next-verify*/
+/.next-check*/
+/.next-whatsapp-check/
+/.n/
+/.b/
+/.c/
+/.d/
+/.e/
+/out/
+
+# production
+/build
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+last-next-dist.txt
+next-start-runtime-*.log
+next-dev-*.log
+next-dev-*.err
+restore-head.tar
+.restore-head/
+
+# env files
+.env*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# build caches / local scratch
+/.next-finance-check/
+/tmp/
+*.log
+scripts/.import_checkpoint.json
+
+.claude/
