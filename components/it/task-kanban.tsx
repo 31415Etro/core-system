@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 type TaskStatus = "triagem" | "a_fazer" | "em_andamento" | "aguardando_cliente" | "concluido"
 type TaskPriority = "baixa" | "media" | "alta"
-type RequestType = "nova_funcionalidade" | "manutencao" | "nova_pagina"
+type RequestType = "nova_funcionalidade" | "manutencao" | "nova_pagina" | "ajuste"
 type TaskAttachment = { id: string; file_name: string; public_url: string | null; mime_type: string | null }
 type Task = {
   id: string; kind: "tarefa" | "chamado"; os_number: string | null; source: "interno" | "publico"
@@ -20,6 +20,7 @@ type Task = {
   request_type: RequestType | null; cost_acknowledged: boolean | null; estimated_window: string | null
   title: string; description: string; priority: TaskPriority; status: TaskStatus
   due_date: string | null; completed_at: string | null; created_at: string; audio_transcript: string | null
+  adjustment_page: string | null; in_development: boolean
   task_attachments: TaskAttachment[]
 }
 
@@ -33,7 +34,7 @@ const columns: { id: TaskStatus; label: string; note: string }[] = [
 
 const priorityStyle: Record<TaskPriority, string> = { baixa: "border-slate-300 bg-slate-50 text-slate-700", media: "border-amber-300 bg-amber-50 text-amber-800", alta: "border-red-300 bg-red-50 text-red-700" }
 const priorityLabel: Record<TaskPriority, string> = { baixa: "Baixa", media: "Média", alta: "Alta" }
-const requestTypeLabel: Record<RequestType, string> = { nova_funcionalidade: "Nova funcionalidade", manutencao: "Manutenção", nova_pagina: "Nova página" }
+const requestTypeLabel: Record<RequestType, string> = { nova_funcionalidade: "Nova funcionalidade", manutencao: "Manutenção", nova_pagina: "Nova página", ajuste: "Ajuste" }
 
 function NewTaskForm({ onCreated }: { onCreated: (task: Task) => void }) {
   const [open, setOpen] = useState(false)
@@ -98,7 +99,10 @@ function TaskCard({ task, onOpen, onDragStart, onStatusChange }: {
       {task.request_type && <Badge variant="secondary">{requestTypeLabel[task.request_type]}</Badge>}
       {task.task_attachments.length > 0 && <Badge variant="outline"><Paperclip />{task.task_attachments.length}</Badge>}
     </div>
-    {task.requester_name && <div className="mt-3 space-y-1.5 border-t pt-3 text-xs text-muted-foreground"><p className="flex items-center gap-1.5"><UserRound className="h-3.5 w-3.5" />{task.requester_name}</p></div>}
+    {(task.requester_name || task.adjustment_page) && <div className="mt-3 space-y-1.5 border-t pt-3 text-xs text-muted-foreground">
+      {task.requester_name && <p className="flex items-center gap-1.5"><UserRound className="h-3.5 w-3.5" />{task.requester_name}</p>}
+      {task.adjustment_page && <p className="truncate">Página: {task.adjustment_page}{task.in_development && " · Em desenvolvimento"}</p>}
+    </div>}
     <div className="mt-3 border-t pt-3" onClick={e => e.stopPropagation()}>
       <Select value={task.status} onValueChange={v => onStatusChange(v as TaskStatus)}>
         <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
@@ -126,7 +130,16 @@ function TaskDetail({ task, open, onOpenChange }: { task: Task | null; open: boo
         <div className="space-y-5">
           <section><h3 className="text-sm font-semibold">Descrição</h3><p className="mt-2 text-sm leading-relaxed text-muted-foreground">{task.description}</p></section>
           {task.estimated_window && <section><h3 className="text-sm font-semibold">Prazo estimado</h3><div className="mt-2 rounded-lg border bg-muted/30 p-3 text-sm">{task.estimated_window}</div></section>}
-          {task.request_type === "nova_funcionalidade" && (
+          {task.request_type === "ajuste" && task.adjustment_page && (
+            <section><h3 className="text-sm font-semibold">Página do ajuste</h3><div className="mt-2 rounded-lg border bg-muted/30 p-3 text-sm">{task.adjustment_page}</div></section>
+          )}
+          {task.request_type === "ajuste" && task.in_development && (
+            <section className="flex items-start gap-2 rounded-lg border border-blue-300 bg-blue-50 p-3 text-sm text-blue-900">
+              <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+              <p>Cliente informou que o projeto está em desenvolvimento (direito a até 3 ajustes por página sem custo).</p>
+            </section>
+          )}
+          {(task.request_type === "nova_funcionalidade" || task.request_type === "ajuste") && (
             <section className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${task.cost_acknowledged ? "border-amber-300 bg-amber-50 text-amber-900" : "border-red-300 bg-red-50 text-red-800"}`}>
               <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
               <p>Ciência do custo adicional: <strong>{task.cost_acknowledged ? "Sim" : "Não"}</strong></p>

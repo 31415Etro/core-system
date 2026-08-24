@@ -9,12 +9,14 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Checkbox } from "@/components/ui/checkbox"
 
-type RequestType = "nova_funcionalidade" | "manutencao" | "nova_pagina"
+type RequestType = "nova_funcionalidade" | "manutencao" | "nova_pagina" | "ajuste"
 type PublicClient = { id: string; name: string }
 
 const MAX_PHOTOS = 5
 const MAX_PHOTO_BYTES = 4 * 1024 * 1024
+const COST_ACK_TYPES = new Set<RequestType>(["nova_funcionalidade", "ajuste"])
 
 const REQUEST_TYPE_INFO: Record<RequestType, { label: string; description: string }> = {
   nova_funcionalidade: {
@@ -30,7 +32,13 @@ const REQUEST_TYPE_INFO: Record<RequestType, { label: string; description: strin
     label: "Nova página",
     description: "Prazo estimado de 3 a 4 dias úteis.",
   },
+  ajuste: {
+    label: "Ajuste",
+    description: "Alteração pontual em uma página existente. Pode gerar custo adicional cobrado na próxima fatura.",
+  },
 }
+
+const DEVELOPMENT_NOTICE = "Como o projeto está em desenvolvimento, você tem direito a até 3 ajustes por página sem custo."
 
 const DATA_DELETION_MESSAGE = "Não realizamos exclusão de dados, solicite ao usuário admin do sistema de sua empresa."
 
@@ -115,6 +123,9 @@ export default function AberturaChamadoPage() {
   const [companyName, setCompanyName] = useState("")
   const [requestType, setRequestType] = useState<RequestType | "">("")
   const [costAcknowledged, setCostAcknowledged] = useState<"true" | "false" | "">("")
+  const [adjustmentPage, setAdjustmentPage] = useState("")
+  const [inDevelopment, setInDevelopment] = useState(false)
+  const [developmentNoticeOpen, setDevelopmentNoticeOpen] = useState(false)
   const [description, setDescription] = useState("")
   const [photos, setPhotos] = useState<File[]>([])
   const [submitting, setSubmitting] = useState(false)
@@ -168,7 +179,8 @@ export default function AberturaChamadoPage() {
     !audio.recording &&
     photos.length >= 1 &&
     photos.length <= MAX_PHOTOS &&
-    (requestType !== "nova_funcionalidade" || costAcknowledged !== "")
+    (!COST_ACK_TYPES.has(requestType as RequestType) || costAcknowledged !== "") &&
+    (requestType !== "ajuste" || adjustmentPage.trim().length > 0)
 
   function requestOpenTicket(event: FormEvent) {
     event.preventDefault()
@@ -188,7 +200,11 @@ export default function AberturaChamadoPage() {
       formData.set("request_type", requestType)
       formData.set("description", description.trim())
       if (audio.transcript.trim()) formData.set("audio_transcript", audio.transcript.trim())
-      if (requestType === "nova_funcionalidade") formData.set("cost_acknowledged", costAcknowledged)
+      if (COST_ACK_TYPES.has(requestType as RequestType)) formData.set("cost_acknowledged", costAcknowledged)
+      if (requestType === "ajuste") {
+        formData.set("adjustment_page", adjustmentPage.trim())
+        formData.set("in_development", String(inDevelopment))
+      }
       photos.forEach(photo => formData.append("photos", photo))
       if (audio.audioBlob) formData.append("audio", audio.audioBlob, "gravacao.webm")
 
@@ -245,7 +261,7 @@ export default function AberturaChamadoPage() {
 
         <div>
           <Label>Tipo de chamado</Label>
-          <Select value={requestType} onValueChange={value => { setRequestType(value as RequestType); setCostAcknowledged("") }}>
+          <Select value={requestType} onValueChange={value => { setRequestType(value as RequestType); setCostAcknowledged(""); setAdjustmentPage(""); setInDevelopment(false) }}>
             <SelectTrigger className="mt-1"><SelectValue placeholder="Selecione o tipo" /></SelectTrigger>
             <SelectContent>
               {Object.entries(REQUEST_TYPE_INFO).map(([value, info]) => <SelectItem key={value} value={value}>{info.label}</SelectItem>)}
@@ -259,9 +275,23 @@ export default function AberturaChamadoPage() {
           )}
         </div>
 
-        {requestType === "nova_funcionalidade" && (
+        {requestType === "ajuste" && (
           <div>
-            <Label>Você tem ciência de que esta funcionalidade gera custo adicional, cobrado na próxima fatura?</Label>
+            <Label>Qual página do ajuste?</Label>
+            <Input className="mt-1" value={adjustmentPage} onChange={e => setAdjustmentPage(e.target.value)} placeholder="Ex.: Página de checkout" />
+          </div>
+        )}
+
+        {requestType === "ajuste" && (
+          <div className="flex items-center gap-2">
+            <Checkbox id="in-development" checked={inDevelopment} onCheckedChange={v => { const checked = Boolean(v); setInDevelopment(checked); if (checked) setDevelopmentNoticeOpen(true) }} />
+            <Label htmlFor="in-development">Este projeto está em desenvolvimento?</Label>
+          </div>
+        )}
+
+        {COST_ACK_TYPES.has(requestType as RequestType) && (
+          <div>
+            <Label>Você tem ciência de que este {requestType === "ajuste" ? "ajuste" : "funcionalidade"} gera custo adicional, cobrado na próxima fatura?</Label>
             <RadioGroup className="mt-2 flex gap-6" value={costAcknowledged} onValueChange={v => setCostAcknowledged(v as "true" | "false")}>
               <div className="flex items-center gap-2"><RadioGroupItem value="true" id="cost-yes" /><Label htmlFor="cost-yes">Sim</Label></div>
               <div className="flex items-center gap-2"><RadioGroupItem value="false" id="cost-no" /><Label htmlFor="cost-no">Não</Label></div>
@@ -339,6 +369,14 @@ export default function AberturaChamadoPage() {
             <Button variant="outline" onClick={() => setConfirmOpen(false)}>Não, quero ajustar</Button>
             <Button onClick={confirmAndSubmit}>Sim, abrir chamado</Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={developmentNoticeOpen} onOpenChange={setDevelopmentNoticeOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Projeto em desenvolvimento</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">{DEVELOPMENT_NOTICE}</p>
+          <DialogFooter className="sm:justify-end"><Button onClick={() => setDevelopmentNoticeOpen(false)}>Entendi</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 

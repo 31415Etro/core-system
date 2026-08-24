@@ -2,13 +2,22 @@ import { NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/server"
 import { uploadTaskAudio, uploadTaskPhoto } from "@/lib/storage"
 
-const REQUEST_TYPES = ["nova_funcionalidade", "manutencao", "nova_pagina"] as const
+const REQUEST_TYPES = ["nova_funcionalidade", "manutencao", "nova_pagina", "ajuste"] as const
 type RequestType = (typeof REQUEST_TYPES)[number]
+const COST_ACK_TYPES = new Set<RequestType>(["nova_funcionalidade", "ajuste"])
 
 const ESTIMATED_WINDOW: Record<RequestType, string> = {
   nova_funcionalidade: "1 a 3 dias úteis · gera custo adicional que será enviado na próxima fatura",
   manutencao: "Correção conforme severidade · queda de banco de dados é corrigida em até 24 horas",
   nova_pagina: "3 a 4 dias úteis",
+  ajuste: "Prazo conforme complexidade · gera custo adicional que será enviado na próxima fatura (gratuito se o projeto estiver em desenvolvimento, até 3 ajustes por página)",
+}
+
+const TITLE_LABEL: Record<RequestType, string> = {
+  nova_funcionalidade: "Nova funcionalidade",
+  manutencao: "Manutenção",
+  nova_pagina: "Nova página",
+  ajuste: "Ajuste",
 }
 
 const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"])
@@ -35,6 +44,8 @@ export async function POST(request: Request) {
     let description = String(formData.get("description") || "").trim()
     const audioTranscript = String(formData.get("audio_transcript") || "").trim()
     const costAcknowledgedRaw = formData.get("cost_acknowledged")
+    const adjustmentPage = String(formData.get("adjustment_page") || "").trim()
+    const inDevelopment = formData.get("in_development") === "true"
     const photos = formData.getAll("photos").filter((item): item is File => item instanceof File && item.size > 0)
     const audioFile = formData.get("audio")
     const audio = audioFile instanceof File && audioFile.size > 0 ? audioFile : null
@@ -46,9 +57,10 @@ export async function POST(request: Request) {
     if (!description && audioTranscript) description = audioTranscript
     if (!description) return NextResponse.json({ error: "Descreva o chamado (por texto ou áudio)" }, { status: 400 })
     if (audio && audio.size > MAX_AUDIO_BYTES) return NextResponse.json({ error: "O áudio deve ter até 15MB" }, { status: 400 })
+    if (requestType === "ajuste" && !adjustmentPage) return NextResponse.json({ error: "Informe qual página precisa de ajuste" }, { status: 400 })
 
     let costAcknowledged: boolean | null = null
-    if (requestType === "nova_funcionalidade") {
+    if (COST_ACK_TYPES.has(requestType)) {
       if (costAcknowledgedRaw !== "true" && costAcknowledgedRaw !== "false") {
         return NextResponse.json({ error: "Confirme se tem ciência do custo adicional" }, { status: 400 })
       }
@@ -98,9 +110,11 @@ export async function POST(request: Request) {
         request_type: requestType,
         cost_acknowledged: costAcknowledged,
         estimated_window: ESTIMATED_WINDOW[requestType],
-        title: `${companyName} · ${requestType === "manutencao" ? "Manutenção" : requestType === "nova_pagina" ? "Nova página" : "Nova funcionalidade"}`,
+        title: `${companyName} · ${TITLE_LABEL[requestType]}`,
         description,
         audio_transcript: audioTranscript || null,
+        adjustment_page: requestType === "ajuste" ? adjustmentPage : null,
+        in_development: requestType === "ajuste" ? inDevelopment : false,
       })
       .select("id, os_number")
       .single()
