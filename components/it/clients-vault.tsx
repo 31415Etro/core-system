@@ -5,7 +5,7 @@ import { PageLayout } from "@/components/page-layout"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -149,6 +149,52 @@ function FinancialsTab({ client }: { client: Client }) {
   </div>
 }
 
+const emptyNewClient = { name: "", legal_name: "", document: "", email: "", phone: "" }
+
+function NewClientForm({ onCreated }: { onCreated: (client: Client) => void }) {
+  const [open, setOpen] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [values, setValues] = useState(emptyNewClient)
+
+  async function submit() {
+    if (!values.name.trim()) return
+    setSaving(true)
+    try {
+      const response = await fetch("/api/clients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(values),
+      })
+      const payload = await response.json()
+      if (!response.ok) throw new Error(payload.error || "Erro ao cadastrar cliente")
+      onCreated(payload.client)
+      setOpen(false)
+      setValues(emptyNewClient)
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Erro ao cadastrar cliente")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return <Dialog open={open} onOpenChange={setOpen}>
+    <DialogTrigger asChild><Button><Plus className="h-4 w-4" />Novo cliente</Button></DialogTrigger>
+    <DialogContent className="max-w-lg">
+      <DialogHeader><DialogTitle>Cadastrar cliente</DialogTitle></DialogHeader>
+      <div className="grid gap-4">
+        <div><Label>Nome fantasia</Label><Input className="mt-1" value={values.name} onChange={e => setValues(v => ({ ...v, name: e.target.value }))} placeholder="Ex.: Cliente LTDA" /></div>
+        <div><Label>Razão social</Label><Input className="mt-1" value={values.legal_name} onChange={e => setValues(v => ({ ...v, legal_name: e.target.value }))} placeholder="Razão social completa" /></div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div><Label>CNPJ</Label><Input className="mt-1" value={values.document} onChange={e => setValues(v => ({ ...v, document: e.target.value }))} placeholder="00.000.000/0001-00" /></div>
+          <div><Label>Telefone</Label><Input className="mt-1" value={values.phone} onChange={e => setValues(v => ({ ...v, phone: e.target.value }))} placeholder="(47) 90000-0000" /></div>
+        </div>
+        <div><Label>E-mail</Label><Input className="mt-1" type="email" value={values.email} onChange={e => setValues(v => ({ ...v, email: e.target.value }))} placeholder="contato@cliente.com" /></div>
+        <div className="flex justify-end"><Button onClick={submit} disabled={saving || !values.name.trim()}>{saving && <Loader2 className="h-4 w-4 animate-spin" />}Cadastrar</Button></div>
+      </div>
+    </DialogContent>
+  </Dialog>
+}
+
 function ClientDetails({ client, open, onOpenChange, credentials, onAdd }: { client: Client | null; open: boolean; onOpenChange: (v: boolean) => void; credentials: Credential[]; onAdd: (c: Credential) => void }) {
   const [adding, setAdding] = useState(false)
   if (!client) return null
@@ -173,7 +219,7 @@ export function ClientsVault() {
 
   const rows = useMemo(() => clients.filter(c => `${c.name} ${c.legal_name ?? ""} ${c.document ?? ""}`.toLowerCase().includes(query.toLowerCase())), [clients, query])
 
-  return <PageLayout><div className="mx-auto max-w-[1440px] space-y-6"><header className="border-b pb-5"><h1 className="text-3xl font-semibold tracking-tight">Clientes e acessos</h1><p className="mt-1 text-sm text-muted-foreground">Contratos, financeiro do projeto e cofre técnico de cada cliente.</p></header><div className="relative max-w-md"><Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><Input value={query} onChange={e => setQuery(e.target.value)} className="pl-9" placeholder="Buscar cliente ou CNPJ" /></div>
+  return <PageLayout><div className="mx-auto max-w-[1440px] space-y-6"><header className="flex flex-col justify-between gap-4 border-b pb-5 md:flex-row md:items-end"><div><h1 className="text-3xl font-semibold tracking-tight">Clientes e acessos</h1><p className="mt-1 text-sm text-muted-foreground">Contratos, financeiro do projeto e cofre técnico de cada cliente.</p></div><NewClientForm onCreated={client => setClients(current => [...current, client].sort((a, b) => a.name.localeCompare(b.name)))} /></header><div className="relative max-w-md"><Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><Input value={query} onChange={e => setQuery(e.target.value)} className="pl-9" placeholder="Buscar cliente ou CNPJ" /></div>
     {loading ? <div className="grid min-h-40 place-items-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div> : <div className="overflow-hidden rounded-xl border bg-card"><Table><TableHeader><TableRow><TableHead>Cliente</TableHead><TableHead>CNPJ</TableHead><TableHead>Plano</TableHead><TableHead>Acessos salvos</TableHead><TableHead>Vencimento</TableHead><TableHead>Mensalidade</TableHead></TableRow></TableHeader><TableBody>{rows.map(c => { const contract = c.support_contracts?.[0]; return <TableRow key={c.id} role="button" tabIndex={0} className="cursor-pointer" onClick={() => setSelected(c)} onKeyDown={e => { if (e.key === "Enter") setSelected(c) }}><TableCell><p className="font-medium">{c.name}</p><p className="text-xs text-muted-foreground">{c.legal_name}</p></TableCell><TableCell>{c.document ?? "—"}</TableCell><TableCell>{contract?.plan_name ?? "—"}</TableCell><TableCell><Badge variant="outline"><KeyRound />{credentials.filter(x => x.clientId === c.id).length}</Badge></TableCell><TableCell>{contract?.due_day ? `Dia ${contract.due_day}` : "—"}</TableCell><TableCell>{contract?.monthly_value ? brl(contract.monthly_value) : "—"}</TableCell></TableRow> })}</TableBody></Table>{!rows.length && <p className="p-6 text-center text-sm text-muted-foreground">Nenhum cliente cadastrado ainda.</p>}</div>}
     <p className="text-xs text-muted-foreground">Clique em um cliente para abrir os dados, o financeiro do projeto e o cofre de acessos.</p>
     <ClientDetails client={selected} open={Boolean(selected)} onOpenChange={v => { if (!v) setSelected(null) }} credentials={credentials} onAdd={c => setCredentials(current => [c, ...current])} />

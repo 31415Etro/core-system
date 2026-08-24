@@ -1,13 +1,14 @@
 "use client"
 
-import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react"
-import { AlertTriangle, CheckCircle2, ImagePlus, Loader2, X } from "lucide-react"
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react"
+import { AlertTriangle, CheckCircle2, ImagePlus, Loader2, Mic, ShieldQuestion, Square, Trash2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 
 type RequestType = "nova_funcionalidade" | "manutencao" | "nova_pagina"
 type PublicClient = { id: string; name: string }
@@ -31,6 +32,82 @@ const REQUEST_TYPE_INFO: Record<RequestType, { label: string; description: strin
   },
 }
 
+const DATA_DELETION_MESSAGE = "Não realizamos exclusão de dados, solicite ao usuário admin do sistema de sua empresa."
+
+function useAudioRecorder() {
+  const [recording, setRecording] = useState(false)
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null)
+  const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const [transcript, setTranscript] = useState("")
+  const [speechSupported, setSpeechSupported] = useState(true)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const chunksRef = useRef<Blob[]>([])
+  const recognitionRef = useRef<any>(null)
+  const finalTranscriptRef = useRef("")
+
+  useEffect(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    setSpeechSupported(Boolean(SpeechRecognition))
+  }, [])
+
+  async function start() {
+    setAudioBlob(null)
+    setAudioUrl(null)
+    setTranscript("")
+    finalTranscriptRef.current = ""
+    chunksRef.current = []
+
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    const recorder = new MediaRecorder(stream)
+    recorder.ondataavailable = event => { if (event.data.size > 0) chunksRef.current.push(event.data) }
+    recorder.onstop = () => {
+      const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" })
+      setAudioBlob(blob)
+      setAudioUrl(URL.createObjectURL(blob))
+      stream.getTracks().forEach(track => track.stop())
+    }
+    recorder.start()
+    mediaRecorderRef.current = recorder
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition()
+      recognition.lang = "pt-BR"
+      recognition.continuous = true
+      recognition.interimResults = true
+      recognition.onresult = (event: any) => {
+        let interim = ""
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const text = event.results[i][0].transcript
+          if (event.results[i].isFinal) finalTranscriptRef.current += text + " "
+          else interim += text
+        }
+        setTranscript((finalTranscriptRef.current + interim).trim())
+      }
+      recognition.onerror = () => {}
+      recognition.start()
+      recognitionRef.current = recognition
+    }
+
+    setRecording(true)
+  }
+
+  function stop() {
+    mediaRecorderRef.current?.stop()
+    recognitionRef.current?.stop()
+    setRecording(false)
+  }
+
+  function reset() {
+    setAudioBlob(null)
+    setAudioUrl(null)
+    setTranscript("")
+    finalTranscriptRef.current = ""
+  }
+
+  return { recording, audioBlob, audioUrl, transcript, setTranscript, speechSupported, start, stop, reset }
+}
+
 export default function AberturaChamadoPage() {
   const [clients, setClients] = useState<PublicClient[]>([])
   const [clientId, setClientId] = useState("")
@@ -43,6 +120,10 @@ export default function AberturaChamadoPage() {
   const [submitting, setSubmitting] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [result, setResult] = useState<{ os_number: string } | null>(null)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [deletionOpen, setDeletionOpen] = useState(false)
+  const [recordError, setRecordError] = useState<string | null>(null)
+  const audio = useAudioRecorder()
 
   useEffect(() => {
     fetch("/api/public/clients")
@@ -67,19 +148,36 @@ export default function AberturaChamadoPage() {
     setPhotos(current => current.filter((_, i) => i !== index))
   }
 
+  async function toggleRecording() {
+    setRecordError(null)
+    try {
+      if (audio.recording) audio.stop()
+      else await audio.start()
+    } catch {
+      setRecordError("Não foi possível acessar o microfone. Verifique a permissão do navegador.")
+    }
+  }
+
+  const hasContent = description.trim().length > 0 || Boolean(audio.audioBlob)
   const canSubmit =
     clientId &&
     requesterName.trim() &&
     companyName.trim() &&
     requestType &&
-    description.trim() &&
+    hasContent &&
+    !audio.recording &&
     photos.length >= 1 &&
     photos.length <= MAX_PHOTOS &&
     (requestType !== "nova_funcionalidade" || costAcknowledged !== "")
 
-  async function handleSubmit(event: FormEvent) {
+  function requestOpenTicket(event: FormEvent) {
     event.preventDefault()
     if (!canSubmit) return
+    setConfirmOpen(true)
+  }
+
+  async function confirmAndSubmit() {
+    setConfirmOpen(false)
     setSubmitting(true)
     setErrorMsg(null)
     try {
@@ -89,8 +187,10 @@ export default function AberturaChamadoPage() {
       formData.set("company_name", companyName.trim())
       formData.set("request_type", requestType)
       formData.set("description", description.trim())
+      if (audio.transcript.trim()) formData.set("audio_transcript", audio.transcript.trim())
       if (requestType === "nova_funcionalidade") formData.set("cost_acknowledged", costAcknowledged)
       photos.forEach(photo => formData.append("photos", photo))
+      if (audio.audioBlob) formData.append("audio", audio.audioBlob, "gravacao.webm")
 
       const response = await fetch("/api/public/tasks", { method: "POST", body: formData })
       const payload = await response.json()
@@ -123,7 +223,7 @@ export default function AberturaChamadoPage() {
         <p className="text-sm text-muted-foreground">Preencha os dados abaixo para abrir um chamado com a Gênes Technology.</p>
       </header>
 
-      <form onSubmit={handleSubmit} className="space-y-5">
+      <form onSubmit={requestOpenTicket} className="space-y-5">
         <div>
           <Label>Cliente</Label>
           <Select value={clientId} onValueChange={setClientId}>
@@ -171,7 +271,30 @@ export default function AberturaChamadoPage() {
 
         <div>
           <Label>Descrição</Label>
-          <Textarea className="mt-1" rows={5} value={description} onChange={e => setDescription(e.target.value)} placeholder="Descreva o problema ou o que precisa ser feito" />
+          <Textarea className="mt-1" rows={5} value={description} onChange={e => setDescription(e.target.value)} placeholder="Descreva o problema ou o que precisa ser feito (ou grave um áudio abaixo)" />
+        </div>
+
+        <div>
+          <Label>Prefere explicar por áudio?</Label>
+          <div className="mt-1 rounded-xl border p-4">
+            {!audio.audioUrl ? (
+              <Button type="button" variant={audio.recording ? "destructive" : "outline"} onClick={toggleRecording}>
+                {audio.recording ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                {audio.recording ? "Parar gravação" : "Gravar áudio"}
+              </Button>
+            ) : (
+              <div className="space-y-3">
+                <audio controls src={audio.audioUrl} className="w-full" />
+                <div>
+                  <Label className="text-xs text-muted-foreground">Transcrição (revise se necessário)</Label>
+                  <Textarea className="mt-1" rows={3} value={audio.transcript} onChange={e => audio.setTranscript(e.target.value)} placeholder={audio.speechSupported ? "" : "Transcrição automática não suportada neste navegador — descreva o que você falou"} />
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={audio.reset}><Trash2 className="h-4 w-4" />Remover áudio</Button>
+              </div>
+            )}
+            {recordError && <p className="mt-2 text-sm text-red-700">{recordError}</p>}
+            {!audio.speechSupported && !audio.audioUrl && <p className="mt-2 text-xs text-muted-foreground">Seu navegador não transcreve automaticamente, mas o áudio é salvo mesmo assim.</p>}
+          </div>
         </div>
 
         <div>
@@ -201,6 +324,31 @@ export default function AberturaChamadoPage() {
           Abrir chamado
         </Button>
       </form>
+
+      <footer className="border-t pt-4 text-center">
+        <button type="button" onClick={() => setDeletionOpen(true)} className="inline-flex items-center gap-1.5 text-xs text-muted-foreground underline">
+          <ShieldQuestion className="h-3.5 w-3.5" />Exclusão de dados
+        </button>
+      </footer>
+
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Confirme antes de enviar</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">Tem certeza que sua descrição de alteração ou manutenção está correta e com imagens?</p>
+          <DialogFooter className="gap-2 sm:justify-end">
+            <Button variant="outline" onClick={() => setConfirmOpen(false)}>Não, quero ajustar</Button>
+            <Button onClick={confirmAndSubmit}>Sim, abrir chamado</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deletionOpen} onOpenChange={setDeletionOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Exclusão de dados</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">{DATA_DELETION_MESSAGE}</p>
+          <DialogFooter className="sm:justify-end"><Button onClick={() => setDeletionOpen(false)}>Entendi</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

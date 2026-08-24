@@ -1,30 +1,61 @@
 "use client"
-import { useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import dynamic from "next/dynamic"
-import { BriefcaseBusiness, Building2, CircleDollarSign, Clock3, FileUp, Headphones, Landmark, MessageCircleMore, Plus, Search, TicketCheck, WalletCards } from "lucide-react"
+import { AlertTriangle, BriefcaseBusiness, CheckCircle2, CircleDollarSign, Headphones, Loader2, TrendingUp } from "lucide-react"
 import { PageLayout } from "@/components/page-layout"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { brl, supportClients } from "@/lib/it-service-data"
+import { brl } from "@/lib/it-service-data"
 import { TicketKanban } from "@/components/it/task-kanban"
 import { CommercialKanban } from "@/components/commercial/commercial-kanban"
-import { AsaasPanel } from "@/components/finance/asaas-panel"
 const ProspectMap = dynamic(() => import("@/components/commercial/prospect-map").then(m => m.ProspectMap), { ssr: false })
 
 function Shell({ title, description, children, actions }:{title:string;description:string;children:React.ReactNode;actions?:React.ReactNode}) { return <PageLayout><div className="mx-auto max-w-[1440px] space-y-6"><header className="flex flex-col justify-between gap-4 border-b pb-5 md:flex-row md:items-end"><div><h1 className="text-3xl font-semibold tracking-tight">{title}</h1><p className="mt-1 max-w-2xl text-sm text-muted-foreground">{description}</p></div>{actions}</header>{children}</div></PageLayout> }
 function Metric({label,value,note,icon:Icon}:{label:string;value:string|number;note:string;icon:any}) { return <div className="border-l-2 border-primary bg-card px-5 py-4"><div className="flex items-center justify-between"><p className="text-sm text-muted-foreground">{label}</p><Icon className="h-4 w-4 text-primary" /></div><p className="mt-2 text-2xl font-semibold tabular-nums">{value}</p><p className="mt-1 text-xs text-muted-foreground">{note}</p></div> }
-function ClientForm() { return <Dialog><DialogTrigger asChild><Button><Plus className="h-4 w-4" />Novo cliente</Button></DialogTrigger><DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>Cadastrar cliente e assinatura</DialogTitle></DialogHeader><div className="grid gap-4 md:grid-cols-2">{[["Nome fantasia","Ex.: Nova Log"],["Razão social","Razão social completa"],["CNPJ","00.000.000/0001-00"],["Grupo do WhatsApp","Suporte | Cliente"],["Valor mensal","R$ 0,00"],["Dia de vencimento","15"]].map(([l,p])=><div key={l}><Label>{l}</Label><Input className="mt-1" placeholder={p}/></div>)}<div><Label>Plano</Label><Select><SelectTrigger className="mt-1"><SelectValue placeholder="Selecione"/></SelectTrigger><SelectContent><SelectItem value="credits">Pacote de créditos</SelectItem><SelectItem value="full">Full ilimitado</SelectItem><SelectItem value="server">Servidor</SelectItem><SelectItem value="email">E-mail</SelectItem></SelectContent></Select></div><div><Label>Créditos mensais</Label><Input className="mt-1" type="number" placeholder="0"/></div><div className="md:col-span-2 flex justify-end"><Button>Salvar no Supabase</Button></div></div></DialogContent></Dialog> }
 
-export function DashboardIT() { const revenue=supportClients.reduce((s,c)=>s+c.monthly,0), used=supportClients.reduce((s,c)=>s+c.used,0); return <Shell title="Operação de suporte" description="Contratos, consumo de créditos e atendimento em uma visão única."><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4"><Metric label="Receita recorrente" value={brl(revenue)} note="19 assinaturas ativas" icon={CircleDollarSign}/><Metric label="Tickets no mês" value={used} note="Gerados por WhatsApp e manualmente" icon={TicketCheck}/><Metric label="Clientes em atenção" value={supportClients.filter(c=>c.status==="Atenção").length} note="Franquia mensal consumida" icon={Clock3}/><Metric label="Grupos conectados" value="16 / 19" note="3 aguardando pareamento" icon={MessageCircleMore}/></div><div className="grid gap-6 xl:grid-cols-[1.4fr_.6fr]"><section><h2 className="mb-3 text-lg font-semibold">Consumo por cliente</h2><div className="overflow-hidden rounded-xl border bg-card"><Table><TableHeader><TableRow><TableHead>Cliente</TableHead><TableHead>Plano</TableHead><TableHead>Uso</TableHead><TableHead>Saldo</TableHead><TableHead>Mensalidade</TableHead></TableRow></TableHeader><TableBody>{supportClients.slice(0,8).map(c=><TableRow key={c.id}><TableCell className="font-medium">{c.name}</TableCell><TableCell>{c.plan}</TableCell><TableCell>{c.used}</TableCell><TableCell>{c.credits===null?"Ilimitado":Math.max(c.credits-c.used,0)}</TableCell><TableCell>{brl(c.monthly)}</TableCell></TableRow>)}</TableBody></Table></div></section><aside><h2 className="mb-3 text-lg font-semibold">Fila da IA</h2><div className="space-y-0 rounded-xl border bg-card">{["Cliente Exemplo 4 solicitou acesso ao servidor","Cliente Exemplo 2 reportou falha de e-mail","Cliente Exemplo 5 enviou áudio para triagem"].map((x,i)=><div className="border-b p-4 last:border-0" key={x}><p className="text-sm font-medium">{x}</p><p className="mt-1 text-xs text-muted-foreground">{i+2} min · aguardando classificação</p></div>)}</div></aside></div></Shell> }
+type Task = { kind: "tarefa" | "chamado"; priority: "baixa" | "media" | "alta"; status: string; completed_at: string | null }
 
-export function ClientsIT() { const [q,setQ]=useState(""); const rows=useMemo(()=>supportClients.filter(c=>`${c.name} ${c.legalName} ${c.document}`.toLowerCase().includes(q.toLowerCase())),[q]); return <Shell title="Clientes e fornecedores" description="Cadastros comerciais, assinaturas, franquias e contatos." actions={<ClientForm/>}><Tabs defaultValue="clients"><TabsList><TabsTrigger value="clients">Clientes</TabsTrigger><TabsTrigger value="suppliers">Fornecedores</TabsTrigger><TabsTrigger value="imports">Importações</TabsTrigger></TabsList><TabsContent value="clients" className="space-y-4"><div className="relative max-w-md"><Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground"/><Input className="pl-9" value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar cliente ou CNPJ"/></div><div className="overflow-hidden rounded-xl border bg-card"><Table><TableHeader><TableRow><TableHead>Cliente</TableHead><TableHead>CNPJ</TableHead><TableHead>Plano</TableHead><TableHead>Créditos</TableHead><TableHead>Vencimento</TableHead><TableHead>Mensalidade</TableHead></TableRow></TableHeader><TableBody>{rows.map(c=><TableRow key={c.id}><TableCell><p className="font-medium">{c.name}</p><p className="text-xs text-muted-foreground">{c.legalName}</p></TableCell><TableCell>{c.document}</TableCell><TableCell>{c.plan}</TableCell><TableCell>{c.credits===null?"Ilimitado":`${c.used}/${c.credits}`}</TableCell><TableCell>Dia {c.dueDay}</TableCell><TableCell>{brl(c.monthly)}</TableCell></TableRow>)}</TableBody></Table></div></TabsContent><TabsContent value="suppliers"><div className="rounded-xl border border-dashed p-12 text-center"><Building2 className="mx-auto h-8 w-8 text-muted-foreground"/><h3 className="mt-3 font-semibold">Cadastre seus fornecedores de T.I.</h3><p className="mt-1 text-sm text-muted-foreground">Distribuidores, links, software, cloud e prestadores especializados.</p><Button className="mt-4"><Plus className="h-4 w-4"/>Novo fornecedor</Button></div></TabsContent><TabsContent value="imports"><UploadPanel text="Importar Assinaturas_Clientes_Consolidado.xlsx" accept=".xlsx,.xls"/></TabsContent></Tabs></Shell> }
+export function TicketsIT() {
+  const [tasks, setTasks] = useState<Task[] | null>(null)
+  useEffect(() => { fetch("/api/tasks").then(r => r.json()).then(p => setTasks(p.tasks ?? [])).catch(() => setTasks([])) }, [])
 
-function UploadPanel({text,accept}:{text:string;accept:string}) { return <label className="flex cursor-pointer flex-col items-center rounded-xl border border-dashed p-12 text-center hover:bg-muted/40"><FileUp className="h-8 w-8 text-primary"/><span className="mt-3 font-medium">{text}</span><span className="mt-1 text-sm text-muted-foreground">O arquivo será validado antes da gravação no Supabase.</span><input className="hidden" type="file" accept={accept}/></label> }
-export function TicketsIT() { return <Shell title="Tarefas e chamados" description="Acompanhe prioridade, prazo, responsável e resolução de cada tarefa ou chamado."><div className="grid gap-3 md:grid-cols-3"><Metric label="Abertos" value="5" note="2 aguardando responsável" icon={Headphones}/><Metric label="Prioridade alta" value="2" note="Manutenção crítica" icon={Clock3}/><Metric label="Concluídos no mês" value="18" note="Referência do mês atual" icon={WalletCards}/></div><TicketKanban/></Shell> }
-export function FinanceIT() { const total=supportClients.reduce((s,c)=>s+c.monthly,0); return <Shell title="Financeiro" description="Receitas recorrentes, contas e conciliação dos extratos bancários."><div className="grid gap-3 md:grid-cols-3"><Metric label="Receita mensal contratada" value={brl(total)} note="19 assinaturas consolidadas" icon={CircleDollarSign}/><Metric label="Entradas Asaas" value={brl(235666.28)} note="676 movimentações importadas" icon={WalletCards}/><Metric label="Débitos Ailos" value={brl(359625.39)} note="211 movimentações importadas" icon={Landmark}/></div><Tabs defaultValue="asaas"><TabsList><TabsTrigger value="asaas">Cobranças ASAAS</TabsTrigger><TabsTrigger value="statement">Extratos</TabsTrigger><TabsTrigger value="receivable">Contas a receber</TabsTrigger><TabsTrigger value="payable">Contas a pagar</TabsTrigger></TabsList><TabsContent value="asaas"><AsaasPanel/></TabsContent><TabsContent value="statement" className="grid gap-4 md:grid-cols-2"><UploadPanel text="Importar extrato de entradas (Asaas)" accept=".pdf,.csv,.xlsx"/><UploadPanel text="Importar extrato de saídas (Ailos)" accept=".pdf,.csv,.xlsx"/></TabsContent><TabsContent value="receivable"><div className="rounded-xl border p-8 text-sm text-muted-foreground">As mensalidades dos contratos serão geradas conforme o dia de pagamento de cada cliente.</div></TabsContent><TabsContent value="payable"><div className="rounded-xl border p-8 text-sm text-muted-foreground">Cadastre despesas recorrentes e vincule fornecedores.</div></TabsContent></Tabs></Shell> }
-export function CommercialIT() { return <Shell title="Comercial" description="Prospecção e negociação de contratos recorrentes de infraestrutura e suporte."><div className="grid gap-3 md:grid-cols-3"><Metric label="Pipeline aberto" value={brl(18450)} note="12 oportunidades ativas" icon={BriefcaseBusiness}/><Metric label="Propostas enviadas" value="5" note="Potencial de R$ 8.900/mês" icon={CircleDollarSign}/><Metric label="Conversão" value="31%" note="Últimos 90 dias" icon={TicketCheck}/></div><Tabs defaultValue="kanban"><TabsList><TabsTrigger value="kanban">Pipeline</TabsTrigger><TabsTrigger value="mapa">Mapa de prospecção</TabsTrigger></TabsList><TabsContent value="kanban"><CommercialKanban/></TabsContent><TabsContent value="mapa"><h2 className="mb-3 text-lg font-semibold">Prospecção por CNAE (Santa Catarina)</h2><ProspectMap/></TabsContent></Tabs></Shell> }
+  const thisMonth = new Date().toISOString().slice(0, 7)
+  const abertos = tasks?.filter(t => t.kind === "chamado" && t.status !== "concluido").length ?? 0
+  const prioridadeAlta = tasks?.filter(t => t.priority === "alta" && t.status !== "concluido").length ?? 0
+  const concluidosNoMes = tasks?.filter(t => t.status === "concluido" && t.completed_at?.startsWith(thisMonth)).length ?? 0
+
+  return <Shell title="Tarefas e chamados" description="Acompanhe prioridade, prazo, responsável e resolução de cada tarefa ou chamado.">
+    {tasks === null ? <div className="grid min-h-24 place-items-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div> : (
+      <div className="grid gap-3 md:grid-cols-3">
+        <Metric label="Chamados abertos" value={abertos} note="Ainda não concluídos" icon={Headphones} />
+        <Metric label="Prioridade alta" value={prioridadeAlta} note="Tarefas e chamados em aberto" icon={AlertTriangle} />
+        <Metric label="Concluídos no mês" value={concluidosNoMes} note="Referência do mês atual" icon={CheckCircle2} />
+      </div>
+    )}
+    <TicketKanban />
+  </Shell>
+}
+
+type Opportunity = { stage: string; estimated_value: number }
+
+export function CommercialIT() {
+  const [opportunities, setOpportunities] = useState<Opportunity[] | null>(null)
+  useEffect(() => { fetch("/api/commercial-opportunities").then(r => r.json()).then(p => setOpportunities(p.opportunities ?? [])).catch(() => setOpportunities([])) }, [])
+
+  const abertas = opportunities?.filter(o => o.stage !== "ganho" && o.stage !== "perdido") ?? []
+  const pipelineAberto = abertas.reduce((sum, o) => sum + (o.estimated_value ?? 0), 0)
+  const propostasEnviadas = opportunities?.filter(o => o.stage === "proposta" || o.stage === "negociacao").length ?? 0
+  const ganhos = opportunities?.filter(o => o.stage === "ganho").length ?? 0
+  const perdidos = opportunities?.filter(o => o.stage === "perdido").length ?? 0
+  const conversao = ganhos + perdidos > 0 ? Math.round((ganhos / (ganhos + perdidos)) * 100) : null
+
+  return <Shell title="Comercial" description="Prospecção e negociação de contratos recorrentes de infraestrutura e suporte.">
+    {opportunities === null ? <div className="grid min-h-24 place-items-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div> : (
+      <div className="grid gap-3 md:grid-cols-3">
+        <Metric label="Pipeline aberto" value={brl(pipelineAberto)} note={`${abertas.length} oportunidades ativas`} icon={BriefcaseBusiness} />
+        <Metric label="Propostas/negociações" value={propostasEnviadas} note="Em proposta ou negociação" icon={CircleDollarSign} />
+        <Metric label="Conversão" value={conversao === null ? "—" : `${conversao}%`} note="Ganhos sobre fechados (ganho + perdido)" icon={TrendingUp} />
+      </div>
+    )}
+    <Tabs defaultValue="kanban"><TabsList><TabsTrigger value="kanban">Pipeline</TabsTrigger><TabsTrigger value="mapa">Mapa de prospecção</TabsTrigger></TabsList><TabsContent value="kanban"><CommercialKanban /></TabsContent><TabsContent value="mapa"><h2 className="mb-3 text-lg font-semibold">Prospecção por CNAE (Santa Catarina)</h2><ProspectMap /></TabsContent></Tabs>
+  </Shell>
+}

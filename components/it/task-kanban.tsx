@@ -13,13 +13,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 type TaskStatus = "triagem" | "a_fazer" | "em_andamento" | "aguardando_cliente" | "concluido"
 type TaskPriority = "baixa" | "media" | "alta"
 type RequestType = "nova_funcionalidade" | "manutencao" | "nova_pagina"
-type TaskAttachment = { id: string; file_name: string; public_url: string | null }
+type TaskAttachment = { id: string; file_name: string; public_url: string | null; mime_type: string | null }
 type Task = {
   id: string; kind: "tarefa" | "chamado"; os_number: string | null; source: "interno" | "publico"
   client_id: string | null; company_name: string | null; requester_name: string | null
   request_type: RequestType | null; cost_acknowledged: boolean | null; estimated_window: string | null
   title: string; description: string; priority: TaskPriority; status: TaskStatus
-  due_date: string | null; completed_at: string | null; created_at: string
+  due_date: string | null; completed_at: string | null; created_at: string; audio_transcript: string | null
   task_attachments: TaskAttachment[]
 }
 
@@ -110,6 +110,8 @@ function TaskCard({ task, onOpen, onDragStart, onStatusChange }: {
 
 function TaskDetail({ task, open, onOpenChange }: { task: Task | null; open: boolean; onOpenChange: (open: boolean) => void }) {
   if (!task) return null
+  const photos = task.task_attachments.filter(file => !file.mime_type?.startsWith("audio/"))
+  const audios = task.task_attachments.filter(file => file.mime_type?.startsWith("audio/"))
   return <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent className="max-h-[90dvh] max-w-3xl overflow-y-auto">
       <DialogHeader>
@@ -132,9 +134,9 @@ function TaskDetail({ task, open, onOpenChange }: { task: Task | null; open: boo
           )}
           <section>
             <h3 className="text-sm font-semibold">Fotos anexadas</h3>
-            {task.task_attachments.length ? (
+            {photos.length ? (
               <div className="mt-2 grid gap-2 sm:grid-cols-3">
-                {task.task_attachments.map(file => (
+                {photos.map(file => (
                   <a key={file.id} href={file.public_url ?? "#"} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-lg border">
                     {file.public_url && <img src={file.public_url} alt={file.file_name} className="h-28 w-full object-cover" />}
                   </a>
@@ -142,6 +144,20 @@ function TaskDetail({ task, open, onOpenChange }: { task: Task | null; open: boo
               </div>
             ) : <p className="mt-2 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Nenhuma foto anexada.</p>}
           </section>
+          {(audios.length > 0 || task.audio_transcript) && (
+            <section>
+              <h3 className="text-sm font-semibold">Áudio do chamado</h3>
+              {audios.map(file => (
+                <audio key={file.id} controls src={file.public_url ?? undefined} className="mt-2 w-full" />
+              ))}
+              {task.audio_transcript && (
+                <div className="mt-2 rounded-lg border bg-muted/30 p-3 text-sm">
+                  <p className="mb-1 text-xs font-semibold text-muted-foreground">Transcrição</p>
+                  {task.audio_transcript}
+                </div>
+              )}
+            </section>
+          )}
         </div>
         <aside className="space-y-4 rounded-xl border bg-muted/20 p-4">
           {task.company_name && <div><p className="text-xs text-muted-foreground">Empresa</p><p className="mt-1 text-sm font-semibold">{task.company_name}</p></div>}

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/server"
-import { uploadTaskPhoto } from "@/lib/storage"
+import { uploadTaskAudio, uploadTaskPhoto } from "@/lib/storage"
 
 const REQUEST_TYPES = ["nova_funcionalidade", "manutencao", "nova_pagina"] as const
 type RequestType = (typeof REQUEST_TYPES)[number]
@@ -14,6 +14,7 @@ const ESTIMATED_WINDOW: Record<RequestType, string> = {
 const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"])
 const MAX_PHOTO_BYTES = 4 * 1024 * 1024
 const MAX_PHOTOS = 5
+const MAX_AUDIO_BYTES = 15 * 1024 * 1024
 const MAX_SUBMISSIONS_PER_HOUR = 10
 
 function getClientIp(request: Request) {
@@ -31,15 +32,20 @@ export async function POST(request: Request) {
     const requesterName = String(formData.get("requester_name") || "").trim()
     const companyName = String(formData.get("company_name") || "").trim()
     const requestType = String(formData.get("request_type") || "").trim() as RequestType
-    const description = String(formData.get("description") || "").trim()
+    let description = String(formData.get("description") || "").trim()
+    const audioTranscript = String(formData.get("audio_transcript") || "").trim()
     const costAcknowledgedRaw = formData.get("cost_acknowledged")
     const photos = formData.getAll("photos").filter((item): item is File => item instanceof File && item.size > 0)
+    const audioFile = formData.get("audio")
+    const audio = audioFile instanceof File && audioFile.size > 0 ? audioFile : null
 
     if (!clientId) return NextResponse.json({ error: "Selecione um cliente" }, { status: 400 })
     if (!requesterName) return NextResponse.json({ error: "Informe o nome do autor do chamado" }, { status: 400 })
     if (!companyName) return NextResponse.json({ error: "Informe a empresa" }, { status: 400 })
     if (!REQUEST_TYPES.includes(requestType)) return NextResponse.json({ error: "Tipo de chamado inválido" }, { status: 400 })
-    if (!description) return NextResponse.json({ error: "Descreva o chamado" }, { status: 400 })
+    if (!description && audioTranscript) description = audioTranscript
+    if (!description) return NextResponse.json({ error: "Descreva o chamado (por texto ou áudio)" }, { status: 400 })
+    if (audio && audio.size > MAX_AUDIO_BYTES) return NextResponse.json({ error: "O áudio deve ter até 15MB" }, { status: 400 })
 
     let costAcknowledged: boolean | null = null
     if (requestType === "nova_funcionalidade") {
@@ -94,6 +100,7 @@ export async function POST(request: Request) {
         estimated_window: ESTIMATED_WINDOW[requestType],
         title: `${companyName} · ${requestType === "manutencao" ? "Manutenção" : requestType === "nova_pagina" ? "Nova página" : "Nova funcionalidade"}`,
         description,
+        audio_transcript: audioTranscript || null,
       })
       .select("id, os_number")
       .single()
@@ -103,10 +110,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Não foi possível abrir o chamado" }, { status: 500 })
     }
 
-    const uploaded = await Promise.all(photos.map(photo => uploadTaskPhoto(task.id, photo)))
+    const uploadedPhotos = await Promise.all(photos.map(photo => uploadTaskPhoto(task.id, photo)))
+    const uploadedAudio = audio ? [await uploadTaskAudio(task.id, audio)] : []
     const { error: attachmentsError } = await supabase
       .from("task_attachments")
-      .insert(uploaded.map(item => ({ ...item, task_id: task.id })))
+      .insert([...uploadedPhotos, ...uploadedAudio].map(item => ({ ...item, task_id: task.id })))
     if (attachmentsError) console.error("[v0] Error saving task attachments:", attachmentsError)
 
     await supabase.from("public_submission_log").insert({ ip })
