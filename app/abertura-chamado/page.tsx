@@ -10,8 +10,74 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 
 type RequestType = "nova_funcionalidade" | "manutencao" | "nova_pagina" | "ajuste"
+
+const MAINTENANCE_RULE = "Manutenção é tudo que tem como objetivo corrigir uma falha, erro ou indisponibilidade e devolver o sistema ao funcionamento que já havia sido contratado ou implementado. Não inclui melhorias, mudanças de preferência ou novas funcionalidades."
+
+const MAINTENANCE_CHECKLIST: Array<{ category: string; items: string[] }> = [
+  { category: "Correção de bugs e erros", items: [
+    "Botão que parou de funcionar.", "Página que não abre.", "Tela que apresenta erro.", "Formulário que não envia informações.",
+    "Campo que não salva os dados.", "Sistema apresentando mensagens de erro inesperadas.", "Função que funcionava anteriormente e deixou de funcionar.",
+    "Cálculo automático apresentando resultado incorreto.", "Filtros que não retornam os resultados corretamente.", "Pesquisa/busca que deixou de funcionar.",
+    "Problemas de paginação.", "Links internos quebrados.",
+  ] },
+  { category: "Problemas de acesso e autenticação", items: [
+    "Usuário não consegue fazer login por falha do sistema.", "Sistema não reconhece usuário ou senha corretamente.", "Recuperação de senha não funciona.",
+    "Sessão encerrando indevidamente.", "Usuários sendo deslogados sem motivo.", "Permissões existentes deixando de funcionar.",
+    "Perfil com acesso incorreto devido a erro do sistema.",
+  ] },
+  { category: "Banco de dados", items: [
+    "Banco de dados indisponível.", "Sistema não consegue consultar o banco.", "Sistema não consegue gravar informações.",
+    "Dados que deveriam estar sendo salvos e não estão.", "Registros duplicados gerados por erro.", "Dados desaparecendo por falha técnica.",
+    "Relacionamento entre registros quebrado.", "Correção de inconsistências geradas pelo próprio sistema.", "Recuperação de banco após falha.",
+    "Correção de consultas que deixaram de funcionar.",
+  ] },
+  { category: "Servidor e infraestrutura", items: [
+    "Sistema fora do ar.", "Servidor indisponível.", "Aplicação não inicializando.", "Serviço necessário para o sistema parou.",
+    "Erros de comunicação entre servidor e aplicação.", "Problemas de configuração que causaram indisponibilidade.", "Falhas de armazenamento.",
+    "Falhas relacionadas à infraestrutura originalmente configurada.", "Reinicialização ou recuperação de serviços após falha.",
+  ] },
+  { category: "Integrações existentes", items: [
+    "Integração com API deixou de funcionar.", "Webhook existente parou de receber ou enviar dados.", "Integração com WhatsApp deixou de funcionar.",
+    "Integração com e-mail deixou de funcionar.", "Integração com sistema de pagamento apresentou erro.", "Integração com ERP/CRM deixou de sincronizar.",
+    "Dados deixaram de ser enviados entre dois sistemas.", "Correção de autenticação de uma integração já implantada.",
+    "Tratamento de erro em uma integração que já fazia parte da solução.",
+  ] },
+  { category: "Disparos e automações existentes", items: [
+    "E-mail automático que deveria ser enviado e não está sendo.", "Mensagem automática que deixou de ser disparada.", "Automação que não executa mais.",
+    "Regra automática existente que está executando incorretamente.", "Notificação que deixou de funcionar.", "Tarefa agendada que não está rodando.",
+    "Correção de fluxo automático que apresenta erro.",
+  ] },
+  { category: "Uploads, arquivos e documentos", items: [
+    "Sistema não permite anexar arquivo.", "Arquivo enviado não é salvo.", "Arquivo não pode ser visualizado ou baixado por erro do sistema.",
+    "PDF que deveria ser gerado e deixou de ser.", "Relatório que deveria ser exportado e apresenta erro.", "Imagem que deveria aparecer e não carrega.",
+  ] },
+  { category: "Relatórios e dashboards existentes", items: [
+    "Dashboard não carrega.", "Indicador apresenta valor incorreto devido a erro de programação.", "Gráfico existente deixou de funcionar.",
+    "Dados não estão sendo atualizados como previsto.", "Relatório existente apresenta erro.", "Exportação para Excel/PDF deixou de funcionar.",
+    "Métrica calculada de maneira diferente da regra originalmente implementada.",
+  ] },
+  { category: "Problemas de interface causados por erro", items: [
+    "Layout quebrado.", "Elementos sobrepostos.", "Texto ou botão desaparecendo.", "Menu que não abre.", "Modal que não fecha.",
+    "Página que ficou inutilizável.", "Componente desalinhado devido a erro do código.", "Responsividade originalmente implementada que deixou de funcionar.",
+    "Página quebrada em celular, tablet ou computador quando anteriormente funcionava.",
+  ] },
+  { category: "Segurança e estabilidade", items: [
+    "Correção de vulnerabilidade identificada no código desenvolvido.", "Correção de falha de autenticação.", "Correção de acesso indevido provocado por erro.",
+    "Correção de exposição indevida de informações causada pelo sistema.", "Atualização técnica necessária para corrigir vulnerabilidade crítica.",
+    "Correção de erro que provoca travamento ou instabilidade.",
+  ] },
+  { category: "Performance", items: [
+    "Sistema ficou anormalmente lento devido a erro.", "Processo entrando em loop.", "Consulta causando travamento.",
+    "Consumo excessivo de recursos provocado por bug.", "Correção de problema técnico que impede o sistema de executar normalmente.",
+  ] },
+  { category: "Recuperação após falhas", items: [
+    "Restaurar dados por falha provocada pelo sistema, quando tecnicamente possível.", "Restaurar funcionamento após queda.", "Recuperar serviço que parou.",
+    "Restaurar versão estável após atualização com erro.", "Executar rollback de uma versão defeituosa.",
+  ] },
+]
 
 const MAX_PHOTOS = 5
 const MAX_PHOTO_BYTES = 4 * 1024 * 1024
@@ -24,8 +90,7 @@ const REQUEST_TYPE_INFO: Record<RequestType, { label: string; description: strin
   },
   manutencao: {
     label: "Manutenção",
-    description:
-      "Use manutenção SOMENTE quando o banco de dados ou o sistema estiver fora do ar / inacessível. Correção é feita em até 24 horas e entra automaticamente com prioridade alta. Qualquer outra correção ou atendimento rápido é \"Ajuste\".",
+    description: MAINTENANCE_RULE + " Selecione abaixo o que está acontecendo. Todo chamado de manutenção entra automaticamente com prioridade alta.",
   },
   nova_pagina: {
     label: "Nova página",
@@ -120,7 +185,7 @@ export default function AberturaChamadoPage() {
   const [companyName, setCompanyName] = useState("")
   const [requestType, setRequestType] = useState<RequestType | "">("")
   const [costAcknowledged, setCostAcknowledged] = useState<"true" | "false" | "">("")
-  const [outageConfirmed, setOutageConfirmed] = useState(false)
+  const [maintenanceSelected, setMaintenanceSelected] = useState<string[]>([])
   const [adjustmentPage, setAdjustmentPage] = useState("")
   const [inDevelopment, setInDevelopment] = useState(false)
   const [developmentNoticeOpen, setDevelopmentNoticeOpen] = useState(false)
@@ -144,6 +209,10 @@ export default function AberturaChamadoPage() {
     setPhotos(current => current.filter((_, i) => i !== index))
   }
 
+  function toggleMaintenanceItem(item: string, checked: boolean) {
+    setMaintenanceSelected(current => checked ? [...current, item] : current.filter(i => i !== item))
+  }
+
   async function toggleRecording() {
     setRecordError(null)
     try {
@@ -154,7 +223,9 @@ export default function AberturaChamadoPage() {
     }
   }
 
-  const hasContent = description.trim().length > 0 || Boolean(audio.audioBlob)
+  const hasContent = requestType === "manutencao"
+    ? maintenanceSelected.length > 0
+    : description.trim().length > 0 || Boolean(audio.audioBlob)
   const canSubmit =
     requesterName.trim() &&
     companyName.trim() &&
@@ -164,8 +235,7 @@ export default function AberturaChamadoPage() {
     photos.length >= 1 &&
     photos.length <= MAX_PHOTOS &&
     (!COST_ACK_TYPES.has(requestType as RequestType) || costAcknowledged !== "") &&
-    (requestType !== "ajuste" || adjustmentPage.trim().length > 0) &&
-    (requestType !== "manutencao" || outageConfirmed)
+    (requestType !== "ajuste" || adjustmentPage.trim().length > 0)
 
   function requestOpenTicket(event: FormEvent) {
     event.preventDefault()
@@ -178,18 +248,22 @@ export default function AberturaChamadoPage() {
     setSubmitting(true)
     setErrorMsg(null)
     try {
+      const finalDescription = requestType === "manutencao"
+        ? maintenanceSelected.map(item => `- ${item}`).join("\n")
+        : description.trim()
+
       const formData = new FormData()
       formData.set("requester_name", requesterName.trim())
       formData.set("company_name", companyName.trim())
       formData.set("request_type", requestType)
-      formData.set("description", description.trim())
+      formData.set("description", finalDescription)
       if (audio.transcript.trim()) formData.set("audio_transcript", audio.transcript.trim())
       if (COST_ACK_TYPES.has(requestType as RequestType)) formData.set("cost_acknowledged", costAcknowledged)
       if (requestType === "ajuste") {
         formData.set("adjustment_page", adjustmentPage.trim())
         formData.set("in_development", String(inDevelopment))
       }
-      if (requestType === "manutencao") formData.set("outage_confirmed", String(outageConfirmed))
+      if (requestType === "manutencao") formData.set("outage_confirmed", "true")
       photos.forEach(photo => formData.append("photos", photo))
       if (audio.audioBlob) formData.append("audio", audio.audioBlob, "gravacao.webm")
 
@@ -238,7 +312,7 @@ export default function AberturaChamadoPage() {
 
         <div>
           <Label>Tipo de chamado</Label>
-          <Select value={requestType} onValueChange={value => { setRequestType(value as RequestType); setCostAcknowledged(""); setAdjustmentPage(""); setInDevelopment(false); setOutageConfirmed(false) }}>
+          <Select value={requestType} onValueChange={value => { setRequestType(value as RequestType); setCostAcknowledged(""); setAdjustmentPage(""); setInDevelopment(false); setMaintenanceSelected([]) }}>
             <SelectTrigger className="mt-1"><SelectValue placeholder="Selecione o tipo" /></SelectTrigger>
             <SelectContent>
               {Object.entries(REQUEST_TYPE_INFO).map(([value, info]) => <SelectItem key={value} value={value}>{info.label}</SelectItem>)}
@@ -253,9 +327,35 @@ export default function AberturaChamadoPage() {
         </div>
 
         {requestType === "manutencao" && (
-          <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3">
-            <Checkbox id="outage-confirmed" checked={outageConfirmed} onCheckedChange={v => setOutageConfirmed(Boolean(v))} className="mt-0.5" />
-            <Label htmlFor="outage-confirmed" className="text-sm text-red-900">Confirmo que o banco de dados ou o sistema está fora do ar / inacessível agora. Se for outra correção ou algo pontual, devo usar "Ajuste".</Label>
+          <div>
+            <Label>O que está acontecendo? (marque tudo que se aplica)</Label>
+            <div className="mt-1 max-h-96 overflow-y-auto rounded-lg border">
+              <Accordion type="multiple" className="px-3">
+                {MAINTENANCE_CHECKLIST.map(group => (
+                  <AccordionItem key={group.category} value={group.category}>
+                    <AccordionTrigger>
+                      {group.category}
+                      {group.items.some(item => maintenanceSelected.includes(item)) && (
+                        <span className="ml-auto mr-2 rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">
+                          {group.items.filter(item => maintenanceSelected.includes(item)).length}
+                        </span>
+                      )}
+                    </AccordionTrigger>
+                    <AccordionContent>
+                      <div className="space-y-2">
+                        {group.items.map(item => (
+                          <label key={item} className="flex items-start gap-2 text-sm">
+                            <Checkbox checked={maintenanceSelected.includes(item)} onCheckedChange={v => toggleMaintenanceItem(item, Boolean(v))} className="mt-0.5" />
+                            {item}
+                          </label>
+                        ))}
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                ))}
+              </Accordion>
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">Nenhum item se aplica? Provavelmente não é manutenção — abra um chamado de "Ajuste".</p>
           </div>
         )}
 
@@ -283,10 +383,12 @@ export default function AberturaChamadoPage() {
           </div>
         )}
 
-        <div>
-          <Label>Descrição</Label>
-          <Textarea className="mt-1" rows={5} value={description} onChange={e => setDescription(e.target.value)} placeholder="Descreva o problema ou o que precisa ser feito (ou grave um áudio abaixo)" />
-        </div>
+        {requestType !== "manutencao" && (
+          <div>
+            <Label>Descrição</Label>
+            <Textarea className="mt-1" rows={5} value={description} onChange={e => setDescription(e.target.value)} placeholder="Descreva o problema ou o que precisa ser feito (ou grave um áudio abaixo)" />
+          </div>
+        )}
 
         <div>
           <Label>Prefere explicar por áudio?</Label>
