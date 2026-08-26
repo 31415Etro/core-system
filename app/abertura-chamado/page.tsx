@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react"
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react"
 import { AlertTriangle, CheckCircle2, ImagePlus, Loader2, Mic, ShieldQuestion, Square, Trash2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,7 +12,6 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Checkbox } from "@/components/ui/checkbox"
 
 type RequestType = "nova_funcionalidade" | "manutencao" | "nova_pagina" | "ajuste"
-type PublicClient = { id: string; name: string }
 
 const MAX_PHOTOS = 5
 const MAX_PHOTO_BYTES = 4 * 1024 * 1024
@@ -26,7 +25,7 @@ const REQUEST_TYPE_INFO: Record<RequestType, { label: string; description: strin
   manutencao: {
     label: "Manutenção",
     description:
-      "Manutenção é tudo que se enquadra em correção de funcionalidade com defeito e atualização de banco de dados. Em caso de queda de banco, a correção é feita em até 24 horas. Todo chamado de manutenção entra automaticamente com prioridade alta.",
+      "Use manutenção SOMENTE quando o banco de dados ou o sistema estiver fora do ar / inacessível. Correção é feita em até 24 horas e entra automaticamente com prioridade alta. Qualquer outra correção ou atendimento rápido é \"Ajuste\".",
   },
   nova_pagina: {
     label: "Nova página",
@@ -117,12 +116,11 @@ function useAudioRecorder() {
 }
 
 export default function AberturaChamadoPage() {
-  const [clients, setClients] = useState<PublicClient[]>([])
-  const [clientId, setClientId] = useState("")
   const [requesterName, setRequesterName] = useState("")
   const [companyName, setCompanyName] = useState("")
   const [requestType, setRequestType] = useState<RequestType | "">("")
   const [costAcknowledged, setCostAcknowledged] = useState<"true" | "false" | "">("")
+  const [outageConfirmed, setOutageConfirmed] = useState(false)
   const [adjustmentPage, setAdjustmentPage] = useState("")
   const [inDevelopment, setInDevelopment] = useState(false)
   const [developmentNoticeOpen, setDevelopmentNoticeOpen] = useState(false)
@@ -135,19 +133,6 @@ export default function AberturaChamadoPage() {
   const [deletionOpen, setDeletionOpen] = useState(false)
   const [recordError, setRecordError] = useState<string | null>(null)
   const audio = useAudioRecorder()
-
-  useEffect(() => {
-    fetch("/api/public/clients")
-      .then(response => response.json())
-      .then(payload => setClients(payload.clients ?? []))
-      .catch(() => setErrorMsg("Não foi possível carregar a lista de clientes."))
-  }, [])
-
-  const selectedClient = useMemo(() => clients.find(c => c.id === clientId) ?? null, [clients, clientId])
-
-  useEffect(() => {
-    if (selectedClient && !companyName) setCompanyName(selectedClient.name)
-  }, [selectedClient]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function handlePhotosChange(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? [])
@@ -171,7 +156,6 @@ export default function AberturaChamadoPage() {
 
   const hasContent = description.trim().length > 0 || Boolean(audio.audioBlob)
   const canSubmit =
-    clientId &&
     requesterName.trim() &&
     companyName.trim() &&
     requestType &&
@@ -180,7 +164,8 @@ export default function AberturaChamadoPage() {
     photos.length >= 1 &&
     photos.length <= MAX_PHOTOS &&
     (!COST_ACK_TYPES.has(requestType as RequestType) || costAcknowledged !== "") &&
-    (requestType !== "ajuste" || adjustmentPage.trim().length > 0)
+    (requestType !== "ajuste" || adjustmentPage.trim().length > 0) &&
+    (requestType !== "manutencao" || outageConfirmed)
 
   function requestOpenTicket(event: FormEvent) {
     event.preventDefault()
@@ -194,7 +179,6 @@ export default function AberturaChamadoPage() {
     setErrorMsg(null)
     try {
       const formData = new FormData()
-      formData.set("client_id", clientId)
       formData.set("requester_name", requesterName.trim())
       formData.set("company_name", companyName.trim())
       formData.set("request_type", requestType)
@@ -205,6 +189,7 @@ export default function AberturaChamadoPage() {
         formData.set("adjustment_page", adjustmentPage.trim())
         formData.set("in_development", String(inDevelopment))
       }
+      if (requestType === "manutencao") formData.set("outage_confirmed", String(outageConfirmed))
       photos.forEach(photo => formData.append("photos", photo))
       if (audio.audioBlob) formData.append("audio", audio.audioBlob, "gravacao.webm")
 
@@ -240,14 +225,6 @@ export default function AberturaChamadoPage() {
       </header>
 
       <form onSubmit={requestOpenTicket} className="space-y-5">
-        <div>
-          <Label>Cliente</Label>
-          <Select value={clientId} onValueChange={setClientId}>
-            <SelectTrigger className="mt-1"><SelectValue placeholder="Selecione o cliente" /></SelectTrigger>
-            <SelectContent>{clients.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
-          </Select>
-        </div>
-
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <Label>Seu nome</Label>
@@ -255,13 +232,13 @@ export default function AberturaChamadoPage() {
           </div>
           <div>
             <Label>Empresa</Label>
-            <Input className="mt-1" value={companyName} onChange={e => setCompanyName(e.target.value)} placeholder="Nome da empresa" />
+            <Input className="mt-1" value={companyName} onChange={e => setCompanyName(e.target.value)} placeholder="Digite o nome exato da sua empresa" />
           </div>
         </div>
 
         <div>
           <Label>Tipo de chamado</Label>
-          <Select value={requestType} onValueChange={value => { setRequestType(value as RequestType); setCostAcknowledged(""); setAdjustmentPage(""); setInDevelopment(false) }}>
+          <Select value={requestType} onValueChange={value => { setRequestType(value as RequestType); setCostAcknowledged(""); setAdjustmentPage(""); setInDevelopment(false); setOutageConfirmed(false) }}>
             <SelectTrigger className="mt-1"><SelectValue placeholder="Selecione o tipo" /></SelectTrigger>
             <SelectContent>
               {Object.entries(REQUEST_TYPE_INFO).map(([value, info]) => <SelectItem key={value} value={value}>{info.label}</SelectItem>)}
@@ -274,6 +251,13 @@ export default function AberturaChamadoPage() {
             </div>
           )}
         </div>
+
+        {requestType === "manutencao" && (
+          <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3">
+            <Checkbox id="outage-confirmed" checked={outageConfirmed} onCheckedChange={v => setOutageConfirmed(Boolean(v))} className="mt-0.5" />
+            <Label htmlFor="outage-confirmed" className="text-sm text-red-900">Confirmo que o banco de dados ou o sistema está fora do ar / inacessível agora. Se for outra correção ou algo pontual, devo usar "Ajuste".</Label>
+          </div>
+        )}
 
         {requestType === "ajuste" && (
           <div>

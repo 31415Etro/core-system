@@ -32,25 +32,60 @@ function getClientIp(request: Request) {
   return request.headers.get("x-real-ip") || "unknown"
 }
 
+function normalizeName(value: string) {
+  return value
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+}
+
+async function sha256Hex(file: File) {
+  const buffer = await file.arrayBuffer()
+  const digest = await crypto.subtle.digest("SHA-256", buffer)
+  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("")
+}
+
+async function fireChamadoWebhook(request: Request, payload: Record<string, unknown>) {
+  try {
+    const supabase = createAdminClient()
+    const { data } = await supabase.from("integration_settings").select("chamado_webhook_url").eq("id", "default").maybeSingle()
+    const url = data?.chamado_webhook_url
+    if (!url) return
+    const origin = new URL(request.url).origin
+    await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...payload,
+        callback: { update_url: `${origin}/api/agent/tasks/${payload.task_id}`, get_url: `${origin}/api/agent/tasks/${payload.task_id}`, auth_header: "x-api-key" },
+      }),
+      signal: AbortSignal.timeout(8000),
+    })
+  } catch (error) {
+    console.error("[v0] Error firing chamado webhook:", error)
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const formData = await request.formData()
     const supabase = createAdminClient()
 
-    const clientId = String(formData.get("client_id") || "").trim()
     const requesterName = String(formData.get("requester_name") || "").trim()
     const companyName = String(formData.get("company_name") || "").trim()
     const requestType = String(formData.get("request_type") || "").trim() as RequestType
     let description = String(formData.get("description") || "").trim()
     const audioTranscript = String(formData.get("audio_transcript") || "").trim()
     const costAcknowledgedRaw = formData.get("cost_acknowledged")
+    const outageConfirmedRaw = formData.get("outage_confirmed")
     const adjustmentPage = String(formData.get("adjustment_page") || "").trim()
     const inDevelopment = formData.get("in_development") === "true"
     const photos = formData.getAll("photos").filter((item): item is File => item instanceof File && item.size > 0)
     const audioFile = formData.get("audio")
     const audio = audioFile instanceof File && audioFile.size > 0 ? audioFile : null
 
-    if (!clientId) return NextResponse.json({ error: "Selecione um cliente" }, { status: 400 })
     if (!requesterName) return NextResponse.json({ error: "Informe o nome do autor do chamado" }, { status: 400 })
     if (!companyName) return NextResponse.json({ error: "Informe a empresa" }, { status: 400 })
     if (!REQUEST_TYPES.includes(requestType)) return NextResponse.json({ error: "Tipo de chamado inválido" }, { status: 400 })
@@ -67,6 +102,14 @@ export async function POST(request: Request) {
       costAcknowledged = costAcknowledgedRaw === "true"
     }
 
+    let outageConfirmed: boolean | null = null
+    if (requestType === "manutencao") {
+      if (outageConfirmedRaw !== "true") {
+        return NextResponse.json({ error: "Manutenção é só para banco de dados ou sistema fora do ar. Confirme a queda ou abra um chamado de Ajuste." }, { status: 400 })
+      }
+      outageConfirmed = true
+    }
+
     if (photos.length < 1 || photos.length > MAX_PHOTOS) {
       return NextResponse.json({ error: `Envie de 1 a ${MAX_PHOTOS} fotos` }, { status: 400 })
     }
@@ -79,13 +122,26 @@ export async function POST(request: Request) {
       }
     }
 
-    const { data: client, error: clientError } = await supabase
-      .from("clients")
+    const photoHashes = await Promise.all(photos.map(sha256Hex))
+    const { data: reusedPhotos } = await supabase
+      .from("task_attachments")
       .select("id")
-      .eq("id", clientId)
+      .in("content_hash", photoHashes)
+      .limit(1)
+    if (reusedPhotos && reusedPhotos.length > 0) {
+      return NextResponse.json({ error: "Uma das fotos já foi usada em outro chamado. Envie fotos novas do problema atual." }, { status: 400 })
+    }
+
+    const normalizedCompany = normalizeName(companyName)
+    const { data: activeClients, error: clientsError } = await supabase
+      .from("clients")
+      .select("id, name, legal_name")
       .eq("status", "active")
-      .maybeSingle()
-    if (clientError || !client) return NextResponse.json({ error: "Cliente não encontrado" }, { status: 400 })
+    if (clientsError) return NextResponse.json({ error: "Não foi possível validar a empresa" }, { status: 500 })
+    const matches = (activeClients ?? []).filter(c => normalizeName(c.name) === normalizedCompany || (c.legal_name && normalizeName(c.legal_name) === normalizedCompany))
+    if (matches.length === 0) return NextResponse.json({ error: "Não encontramos uma empresa com esse nome. Verifique a grafia exata ou entre em contato com a Gênes." }, { status: 400 })
+    if (matches.length > 1) return NextResponse.json({ error: "Encontramos mais de uma empresa com esse nome. Entre em contato com a Gênes para abrir o chamado." }, { status: 400 })
+    const clientId = matches[0].id
 
     const ip = getClientIp(request)
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
@@ -115,6 +171,7 @@ export async function POST(request: Request) {
         audio_transcript: audioTranscript || null,
         adjustment_page: requestType === "ajuste" ? adjustmentPage : null,
         in_development: requestType === "ajuste" ? inDevelopment : false,
+        outage_confirmed: outageConfirmed,
       })
       .select("id, os_number")
       .single()
@@ -124,7 +181,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Não foi possível abrir o chamado" }, { status: 500 })
     }
 
-    const uploadedPhotos = await Promise.all(photos.map(photo => uploadTaskPhoto(task.id, photo)))
+    const uploadedPhotos = await Promise.all(photos.map((photo, index) => uploadTaskPhoto(task.id, photo).then(item => ({ ...item, content_hash: photoHashes[index] }))))
     const uploadedAudio = audio ? [await uploadTaskAudio(task.id, audio)] : []
     const { error: attachmentsError } = await supabase
       .from("task_attachments")
@@ -132,6 +189,29 @@ export async function POST(request: Request) {
     if (attachmentsError) console.error("[v0] Error saving task attachments:", attachmentsError)
 
     await supabase.from("public_submission_log").insert({ ip })
+
+    await fireChamadoWebhook(request, {
+      event: "chamado.created",
+      task_id: task.id,
+      os_number: task.os_number,
+      client_id: clientId,
+      company_name: companyName,
+      requester_name: requesterName,
+      request_type: requestType,
+      adjustment_page: requestType === "ajuste" ? adjustmentPage : null,
+      in_development: requestType === "ajuste" ? inDevelopment : false,
+      cost_acknowledged: costAcknowledged,
+      outage_confirmed: outageConfirmed,
+      priority: requestType === "manutencao" ? "alta" : "media",
+      status: "triagem",
+      title: `${companyName} · ${TITLE_LABEL[requestType]}`,
+      description,
+      audio_transcript: audioTranscript || null,
+      estimated_window: ESTIMATED_WINDOW[requestType],
+      photos: uploadedPhotos.map(p => ({ file_name: p.file_name, url: p.public_url })),
+      audio: uploadedAudio[0] ? { file_name: uploadedAudio[0].file_name, url: uploadedAudio[0].public_url } : null,
+      created_at: new Date().toISOString(),
+    })
 
     return NextResponse.json({ task_id: task.id, os_number: task.os_number }, { status: 201 })
   } catch (error) {

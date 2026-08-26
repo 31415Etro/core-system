@@ -13,9 +13,10 @@ const publicPaths = [
   "/campo/atendimento",
   "/campo/checklist",
   "/abertura-chamado",
-  "/api/public/clients",
   "/api/public/tasks",
 ]
+
+const publicPathPrefixes = ["/api/agent/"]
 
 const publicPatterns = [
   /^\/api\/ordens-servico\/[^/]+\/eventos$/,
@@ -42,6 +43,7 @@ const pagePermissions = [
 function isPublicPath(pathname: string) {
   return publicPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`))
     || publicPatterns.some((pattern) => pattern.test(pathname))
+    || publicPathPrefixes.some((prefix) => pathname.startsWith(prefix))
 }
 
 function redirectWithCookies(request: NextRequest, pathname: string, source: NextResponse, returnTo = false) {
