@@ -132,16 +132,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Uma das fotos já foi usada em outro chamado. Envie fotos novas do problema atual." }, { status: 400 })
     }
 
+    // Tenta casar a empresa digitada com um cliente cadastrado, mas nunca bloqueia o
+    // envio do chamado por isso — se não achar (ou achar mais de um), o chamado abre
+    // sem client_id e o time da Gênes classifica manualmente no Kanban.
     const normalizedCompany = normalizeName(companyName)
-    const { data: activeClients, error: clientsError } = await supabase
-      .from("clients")
-      .select("id, name, legal_name")
-      .eq("status", "active")
-    if (clientsError) return NextResponse.json({ error: "Não foi possível validar a empresa" }, { status: 500 })
-    const matches = (activeClients ?? []).filter(c => normalizeName(c.name) === normalizedCompany || (c.legal_name && normalizeName(c.legal_name) === normalizedCompany))
-    if (matches.length === 0) return NextResponse.json({ error: "Não encontramos uma empresa com esse nome. Verifique a grafia exata ou entre em contato com a Gênes." }, { status: 400 })
-    if (matches.length > 1) return NextResponse.json({ error: "Encontramos mais de uma empresa com esse nome. Entre em contato com a Gênes para abrir o chamado." }, { status: 400 })
-    const clientId = matches[0].id
+    const { data: activeClients } = await supabase.from("clients").select("id, name, legal_name").eq("status", "active")
+    const clientNames = (activeClients ?? []).map(c => ({ id: c.id, names: [normalizeName(c.name), c.legal_name ? normalizeName(c.legal_name) : ""].filter(Boolean) }))
+    let exactMatches = clientNames.filter(c => c.names.includes(normalizedCompany))
+    if (exactMatches.length === 0 && normalizedCompany.length >= 3) {
+      exactMatches = clientNames.filter(c => c.names.some(name => name.includes(normalizedCompany) || normalizedCompany.includes(name)))
+    }
+    const clientId = exactMatches.length === 1 ? exactMatches[0].id : null
 
     const ip = getClientIp(request)
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()

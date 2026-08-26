@@ -22,6 +22,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (body.description !== undefined) updateData.description = body.description
     if (body.assignee_id !== undefined) updateData.assignee_id = body.assignee_id || null
     if (body.due_date !== undefined) updateData.due_date = body.due_date || null
+    if (body.client_id !== undefined) updateData.client_id = body.client_id || null
 
     const supabase = createAdminClient()
     const { data, error } = await supabase
