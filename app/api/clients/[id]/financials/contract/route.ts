@@ -1,32 +1,23 @@
 import { NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/server"
-import { uploadClientContract } from "@/lib/storage"
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params
-    const formData = await request.formData()
-    const file = formData.get("contract")
+    const body = await request.json()
+    const fileName = String(body.file_name || "").trim()
+    const storagePath = String(body.storage_path || "").trim()
 
-    if (!(file instanceof File) || file.size === 0) {
-      return NextResponse.json({ error: "Envie um arquivo PDF" }, { status: 400 })
-    }
-    if (file.type !== "application/pdf") {
-      return NextResponse.json({ error: "O contrato deve ser um PDF" }, { status: 400 })
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      return NextResponse.json({ error: "O arquivo deve ter até 10MB" }, { status: 400 })
-    }
-
-    const uploaded = await uploadClientContract(id, file)
+    if (!fileName || !storagePath) return NextResponse.json({ error: "Upload incompleto" }, { status: 400 })
+    if (!storagePath.startsWith(`contratos/${id}/`)) return NextResponse.json({ error: "Caminho de arquivo inválido" }, { status: 400 })
 
     const supabase = createAdminClient()
     const { data, error } = await supabase
       .from("client_financials")
       .upsert({
         client_id: id,
-        contract_file_name: uploaded.file_name,
-        contract_storage_path: uploaded.storage_path,
+        contract_file_name: fileName,
+        contract_storage_path: storagePath,
         contract_uploaded_at: new Date().toISOString(),
       }, { onConflict: "client_id" })
       .select("*")
@@ -39,7 +30,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     return NextResponse.json({ financials: data }, { status: 201 })
   } catch (error) {
-    console.error("[v0] Error uploading contract:", error)
+    console.error("[v0] Error saving contract reference:", error)
     return NextResponse.json({ error: error instanceof Error ? error.message : "Internal server error" }, { status: 500 })
   }
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/server"
-import { getSignedContractUrl } from "@/lib/storage"
+import { getSignedClientDocumentUrl } from "@/lib/storage"
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -17,16 +17,24 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    let contractSignedUrl: string | null = null
-    if (data?.contract_storage_path) {
+    async function signedUrlFor(path: string | null | undefined) {
+      if (!path) return null
       try {
-        contractSignedUrl = await getSignedContractUrl(data.contract_storage_path)
+        return await getSignedClientDocumentUrl(path)
       } catch (err) {
-        console.error("[v0] Error signing contract url:", err)
+        console.error("[v0] Error signing document url:", err)
+        return null
       }
     }
 
-    return NextResponse.json({ financials: data ? { ...data, contract_signed_url: contractSignedUrl } : null })
+    const financials = data ? {
+      ...data,
+      contract_signed_url: await signedUrlFor(data.contract_storage_path),
+      welcome_presentation_signed_url: await signedUrlFor(data.welcome_presentation_storage_path),
+      schedule_presentation_signed_url: await signedUrlFor(data.schedule_presentation_storage_path),
+    } : null
+
+    return NextResponse.json({ financials })
   } catch (error) {
     console.error("[v0] Error fetching client financials:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

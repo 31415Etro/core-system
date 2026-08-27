@@ -44,22 +44,25 @@ export async function uploadTaskAudio(taskId: string, file: File) {
   }
 }
 
-export async function uploadClientContract(clientId: string, file: File) {
-  const supabase = createAdminClient()
-  const path = `contratos/${clientId}/${crypto.randomUUID()}-${sanitizeFileName(file.name)}`
-  const { error } = await supabase.storage
-    .from(CLIENT_CONTRACTS_BUCKET)
-    .upload(path, file, { contentType: file.type || "application/pdf", upsert: false })
-  if (error) throw new Error(`Falha ao enviar contrato: ${error.message}`)
+export const CLIENT_DOCUMENT_KINDS = { contract: "contratos", "boas-vindas": "apresentacoes/boas-vindas", cronograma: "apresentacoes/cronograma" } as const
+export type ClientDocumentKind = keyof typeof CLIENT_DOCUMENT_KINDS
 
-  return { file_name: file.name, storage_path: path }
+// Gera uma URL assinada para o navegador subir o PDF direto no Supabase Storage.
+// Necessário porque funções serverless da Vercel têm limite de 4.5MB por requisição
+// e essas apresentações costumam ser arquivos pesados — o arquivo nunca passa pela nossa rota.
+export async function createClientDocumentUploadUrl(clientId: string, kind: ClientDocumentKind, fileName: string) {
+  const supabase = createAdminClient()
+  const path = `${CLIENT_DOCUMENT_KINDS[kind]}/${clientId}/${crypto.randomUUID()}-${sanitizeFileName(fileName)}`
+  const { data, error } = await supabase.storage.from(CLIENT_CONTRACTS_BUCKET).createSignedUploadUrl(path)
+  if (error) throw new Error(`Falha ao gerar link de upload: ${error.message}`)
+  return { path, token: data.token, bucket: CLIENT_CONTRACTS_BUCKET }
 }
 
-export async function getSignedContractUrl(storagePath: string, expiresInSeconds = 300) {
+export async function getSignedClientDocumentUrl(storagePath: string, expiresInSeconds = 300) {
   const supabase = createAdminClient()
   const { data, error } = await supabase.storage
     .from(CLIENT_CONTRACTS_BUCKET)
     .createSignedUrl(storagePath, expiresInSeconds)
-  if (error) throw new Error(`Falha ao gerar link do contrato: ${error.message}`)
+  if (error) throw new Error(`Falha ao gerar link do arquivo: ${error.message}`)
   return data.signedUrl
 }

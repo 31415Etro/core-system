@@ -13,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { brl } from "@/lib/it-service-data"
+import { createClient } from "@/lib/supabase/client"
 
 type SupportContract = { plan_name: string | null; monthly_value: number | null; due_day: number | null }
 type Client = {
@@ -25,6 +26,8 @@ type ClientFinancials = {
   has_maintenance: boolean; maintenance_monthly_value: number | null
   has_change_package: boolean; change_package_scope: string | null
   contract_file_name: string | null; contract_uploaded_at: string | null; contract_signed_url: string | null
+  welcome_presentation_file_name: string | null; welcome_presentation_signed_url: string | null
+  schedule_presentation_file_name: string | null; schedule_presentation_signed_url: string | null
 }
 
 type AccessType = "computer" | "server" | "network" | "email" | "system" | "other"
@@ -51,21 +54,89 @@ function CredentialForm({ client, onSave, onCancel }: { client: Client; onSave: 
   return <form onSubmit={submit} className="grid gap-4 md:grid-cols-2"><div><Label>Tipo de acesso</Label><Select value={type} onValueChange={v => setType(v as AccessType)}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(types).map(([id, t]) => <SelectItem key={id} value={id}>{t.label}</SelectItem>)}</SelectContent></Select></div><div><Label>Nome do acesso</Label><Input className="mt-1" name="label" required placeholder="Ex.: Servidor de arquivos" /></div><div><Label>Usuário / login</Label><Input className="mt-1" name="username" required autoComplete="off" /></div><div><Label>Senha</Label><Input className="mt-1" name="secret" type="password" required autoComplete="new-password" /></div><div className="md:col-span-2"><Label>Computador, IP ou endereço</Label><Input className="mt-1" name="host" placeholder="Ex.: SRV-01, 192.168.0.10 ou painel.com" /></div><div className="md:col-span-2"><Label>Observações técnicas</Label><Textarea className="mt-1" name="notes" placeholder="VPN necessária, localização, instruções..." /></div><div className="md:col-span-2 flex justify-end gap-2"><Button type="button" variant="outline" onClick={onCancel}>Cancelar</Button><Button type="submit"><ShieldCheck className="h-4 w-4" />Salvar no cofre</Button></div></form>
 }
 
-const emptyFinancials: ClientFinancials = { project_total_value: null, installments_total: null, installments_paid: null, has_maintenance: false, maintenance_monthly_value: null, has_change_package: false, change_package_scope: null, contract_file_name: null, contract_uploaded_at: null, contract_signed_url: null }
+const emptyFinancials: ClientFinancials = {
+  project_total_value: null, installments_total: null, installments_paid: null, has_maintenance: false, maintenance_monthly_value: null,
+  has_change_package: false, change_package_scope: null, contract_file_name: null, contract_uploaded_at: null, contract_signed_url: null,
+  welcome_presentation_file_name: null, welcome_presentation_signed_url: null, schedule_presentation_file_name: null, schedule_presentation_signed_url: null,
+}
+
+type ClientDocumentKind = "contract" | "boas-vindas" | "cronograma"
+
+function DocumentUpload({ label, fileName, signedUrl, clientId, kind, confirmEndpoint, onUploaded }: {
+  label: string; fileName: string | null; signedUrl: string | null; clientId: string
+  kind: ClientDocumentKind; confirmEndpoint: string; onUploaded: () => void
+}) {
+  const [uploading, setUploading] = useState(false)
+
+  async function handleFile(file: File) {
+    if (file.type !== "application/pdf") { alert(`${label}: envie um arquivo PDF`); return }
+    if (file.size > 50 * 1024 * 1024) { alert(`${label}: o arquivo deve ter até 50MB`); return }
+
+    setUploading(true)
+    try {
+      // Upload vai direto do navegador para o Supabase Storage via URL assinada — a Vercel
+      // rejeita qualquer requisição de função serverless acima de 4.5MB, e essas apresentações
+      // costumam pesar bem mais que isso.
+      const urlResponse = await fetch(`/api/clients/${clientId}/financials/upload-url`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, file_name: file.name }),
+      })
+      const urlPayload = await urlResponse.json()
+      if (!urlResponse.ok) throw new Error(urlPayload.error || "Erro ao preparar upload")
+
+      const { error: uploadError } = await createClient().storage
+        .from(urlPayload.bucket)
+        .uploadToSignedUrl(urlPayload.path, urlPayload.token, file, { contentType: file.type })
+      if (uploadError) throw new Error(uploadError.message)
+
+      const confirmResponse = await fetch(confirmEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file_name: file.name, storage_path: urlPayload.path }),
+      })
+      const confirmPayload = await confirmResponse.json()
+      if (!confirmResponse.ok) throw new Error(confirmPayload.error || `Erro ao registrar ${label.toLowerCase()}`)
+      onUploaded()
+    } catch (error) {
+      alert(error instanceof Error ? error.message : `Erro ao enviar ${label.toLowerCase()}`)
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  return <div className="rounded-xl border p-4">
+    <p className="text-sm font-medium">{label}</p>
+    {fileName ? (
+      <div className="mt-2 flex flex-wrap items-center gap-3">
+        <FileText className="h-5 w-5 text-primary" />
+        <span className="text-sm">{fileName}</span>
+        {signedUrl && <a href={signedUrl} target="_blank" rel="noreferrer" className="text-sm font-medium text-primary underline">Baixar</a>}
+      </div>
+    ) : <p className="mt-1 text-sm text-muted-foreground">Nenhum arquivo anexado.</p>}
+    <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted/40">
+      {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+      {fileName ? "Substituir (PDF, até 50MB)" : "Anexar (PDF, até 50MB)"}
+      <input className="hidden" type="file" accept="application/pdf" disabled={uploading} onChange={e => { const file = e.target.files?.[0]; if (file) handleFile(file); e.target.value = "" }} />
+    </label>
+  </div>
+}
 
 function FinancialsTab({ client }: { client: Client }) {
   const [financials, setFinancials] = useState<ClientFinancials>(emptyFinancials)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [uploading, setUploading] = useState(false)
+
+  function refresh() {
+    return fetch(`/api/clients/${client.id}/financials`)
+      .then(response => response.json())
+      .then(payload => setFinancials(payload.financials ?? emptyFinancials))
+  }
 
   useEffect(() => {
     setLoading(true)
-    fetch(`/api/clients/${client.id}/financials`)
-      .then(response => response.json())
-      .then(payload => setFinancials(payload.financials ?? emptyFinancials))
-      .finally(() => setLoading(false))
-  }, [client.id])
+    refresh().finally(() => setLoading(false))
+  }, [client.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function save() {
     setSaving(true)
@@ -93,23 +164,6 @@ function FinancialsTab({ client }: { client: Client }) {
     }
   }
 
-  async function uploadContract(file: File) {
-    setUploading(true)
-    try {
-      const formData = new FormData()
-      formData.set("contract", file)
-      const response = await fetch(`/api/clients/${client.id}/financials/contract`, { method: "POST", body: formData })
-      const payload = await response.json()
-      if (!response.ok) throw new Error(payload.error || "Erro ao enviar contrato")
-      const refreshed = await fetch(`/api/clients/${client.id}/financials`).then(r => r.json())
-      setFinancials(refreshed.financials ?? emptyFinancials)
-    } catch (error) {
-      alert(error instanceof Error ? error.message : "Erro ao enviar contrato")
-    } finally {
-      setUploading(false)
-    }
-  }
-
   if (loading) return <div className="grid min-h-40 place-items-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
 
   return <div className="space-y-5">
@@ -129,21 +183,33 @@ function FinancialsTab({ client }: { client: Client }) {
       {financials.has_change_package && <div className="mt-3"><Label>O que o pacote/projeto contempla</Label><Textarea className="mt-1" value={financials.change_package_scope ?? ""} onChange={e => setFinancials(f => ({ ...f, change_package_scope: e.target.value }))} placeholder="Descreva o escopo contratado" /></div>}
     </div>
 
-    <div className="rounded-xl border p-4">
-      <p className="text-sm font-medium">Contrato</p>
-      {financials.contract_file_name ? (
-        <div className="mt-2 flex flex-wrap items-center gap-3">
-          <FileText className="h-5 w-5 text-primary" />
-          <span className="text-sm">{financials.contract_file_name}</span>
-          {financials.contract_signed_url && <a href={financials.contract_signed_url} target="_blank" rel="noreferrer" className="text-sm font-medium text-primary underline">Baixar contrato</a>}
-        </div>
-      ) : <p className="mt-1 text-sm text-muted-foreground">Nenhum contrato anexado.</p>}
-      <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted/40">
-        {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-        {financials.contract_file_name ? "Substituir contrato (PDF)" : "Anexar contrato (PDF)"}
-        <input className="hidden" type="file" accept="application/pdf" disabled={uploading} onChange={e => { const file = e.target.files?.[0]; if (file) uploadContract(file); e.target.value = "" }} />
-      </label>
-    </div>
+    <DocumentUpload
+      label="Contrato"
+      fileName={financials.contract_file_name}
+      signedUrl={financials.contract_signed_url}
+      clientId={client.id}
+      kind="contract"
+      confirmEndpoint={`/api/clients/${client.id}/financials/contract`}
+      onUploaded={refresh}
+    />
+    <DocumentUpload
+      label="Apresentação de boas-vindas"
+      fileName={financials.welcome_presentation_file_name}
+      signedUrl={financials.welcome_presentation_signed_url}
+      clientId={client.id}
+      kind="boas-vindas"
+      confirmEndpoint={`/api/clients/${client.id}/financials/welcome-presentation`}
+      onUploaded={refresh}
+    />
+    <DocumentUpload
+      label="Apresentação de cronograma"
+      fileName={financials.schedule_presentation_file_name}
+      signedUrl={financials.schedule_presentation_signed_url}
+      clientId={client.id}
+      kind="cronograma"
+      confirmEndpoint={`/api/clients/${client.id}/financials/schedule-presentation`}
+      onUploaded={refresh}
+    />
 
     <div className="flex justify-end"><Button onClick={save} disabled={saving}>{saving && <Loader2 className="h-4 w-4 animate-spin" />}Salvar financeiro</Button></div>
   </div>
