@@ -16,7 +16,7 @@ const publicPaths = [
   "/api/public/tasks",
 ]
 
-const publicPathPrefixes = ["/api/agent/"]
+const publicPathPrefixes = ["/api/agent/", "/api/integrations/"]
 
 const publicPatterns = [
   /^\/api\/ordens-servico\/[^/]+\/eventos$/,

@@ -1,19 +1,37 @@
 import { NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/server"
 
+function generateKey() {
+  return crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "")
+}
+
 async function getOrCreateSettings() {
   const supabase = createAdminClient()
   const { data, error } = await supabase.from("integration_settings").select("*").eq("id", "default").maybeSingle()
   if (error) throw new Error(error.message)
-  if (data) return data
 
-  const { data: created, error: createError } = await supabase
-    .from("integration_settings")
-    .insert({ id: "default", agent_api_key: crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "") })
-    .select("*")
-    .single()
-  if (createError) throw new Error(createError.message)
-  return created
+  if (!data) {
+    const { data: created, error: createError } = await supabase
+      .from("integration_settings")
+      .insert({ id: "default", agent_api_key: generateKey(), mc_climatizacao_ticket_api_key: generateKey() })
+      .select("*")
+      .single()
+    if (createError) throw new Error(createError.message)
+    return created
+  }
+
+  if (!data.mc_climatizacao_ticket_api_key) {
+    const { data: updated, error: updateError } = await supabase
+      .from("integration_settings")
+      .update({ mc_climatizacao_ticket_api_key: generateKey() })
+      .eq("id", "default")
+      .select("*")
+      .single()
+    if (updateError) throw new Error(updateError.message)
+    return updated
+  }
+
+  return data
 }
 
 export async function GET() {

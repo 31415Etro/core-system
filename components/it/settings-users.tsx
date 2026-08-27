@@ -42,16 +42,20 @@ const WEBHOOK_FIELDS: Array<{ field: string; description: string }> = [
 function IntegrationSettings() {
   const [webhookUrl, setWebhookUrl] = useState("")
   const [apiKey, setApiKey] = useState("")
+  const [mcApiKey, setMcApiKey] = useState("")
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
+  const [regeneratingMc, setRegeneratingMc] = useState(false)
   const [showKey, setShowKey] = useState(false)
+  const [showMcKey, setShowMcKey] = useState(false)
   const [savedMsg, setSavedMsg] = useState("")
 
   useEffect(() => {
     fetch("/api/settings/integration").then(r => r.json()).then(p => {
       setWebhookUrl(p.settings?.chamado_webhook_url ?? "")
       setApiKey(p.settings?.agent_api_key ?? "")
+      setMcApiKey(p.settings?.mc_climatizacao_ticket_api_key ?? "")
     }).finally(() => setLoading(false))
   }, [])
 
@@ -83,6 +87,22 @@ function IntegrationSettings() {
       alert(error instanceof Error ? error.message : "Erro ao gerar chave")
     } finally {
       setRegenerating(false)
+    }
+  }
+
+  async function regenerateMc() {
+    if (!confirm("Gerar uma nova chave para a MC Climatização? A chave antiga para de funcionar imediatamente.")) return
+    setRegeneratingMc(true)
+    try {
+      const response = await fetch("/api/settings/integration/regenerate-mc-key", { method: "POST" })
+      const payload = await response.json()
+      if (!response.ok) throw new Error(payload.error || "Erro ao gerar chave")
+      setMcApiKey(payload.settings.mc_climatizacao_ticket_api_key)
+      setShowMcKey(true)
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Erro ao gerar chave")
+    } finally {
+      setRegeneratingMc(false)
     }
   }
 
@@ -120,6 +140,48 @@ function IntegrationSettings() {
     <div className="overflow-hidden rounded-xl border bg-card">
       <div className="border-b p-4"><h2 className="font-semibold">Campos enviados no webhook</h2><p className="text-xs text-muted-foreground">JSON enviado por POST a cada chamado novo.</p></div>
       <Table><TableHeader><TableRow><TableHead>Campo</TableHead><TableHead>Descrição</TableHead></TableRow></TableHeader><TableBody>{WEBHOOK_FIELDS.map(f => <TableRow key={f.field}><TableCell className="font-mono text-xs">{f.field}</TableCell><TableCell className="text-sm text-muted-foreground">{f.description}</TableCell></TableRow>)}</TableBody></Table>
+    </div>
+
+    <div className="flex gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
+      <Webhook className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+      <div>
+        <p className="text-sm font-semibold">API de chamados — MC Climatização</p>
+        <p className="mt-1 text-xs text-muted-foreground">O sistema da MC Climatização chama esse endpoint diretamente (sem formulário) para abrir um chamado de "Ajuste" já classificado. Requer a chave abaixo no header <code className="rounded bg-muted px-1">x-api-key</code>.</p>
+      </div>
+    </div>
+
+    <div className="rounded-xl border bg-card p-5">
+      <Label>Chave de API — MC Climatização</Label>
+      <p className="mt-1 text-xs text-muted-foreground">Repasse essa chave para o time de desenvolvimento da MC Climatização configurar no sistema deles.</p>
+      <div className="mt-2 flex gap-2">
+        <code className="min-w-0 flex-1 overflow-x-auto rounded-md bg-muted px-3 py-2 font-mono text-xs">{showMcKey ? mcApiKey : "•".repeat(Math.min(mcApiKey.length, 48))}</code>
+        <Button size="icon" variant="outline" onClick={() => setShowMcKey(v => !v)} aria-label={showMcKey ? "Ocultar chave" : "Revelar chave"}>{showMcKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</Button>
+        <Button size="icon" variant="outline" onClick={() => navigator.clipboard?.writeText(mcApiKey)} aria-label="Copiar chave"><Copy className="h-4 w-4" /></Button>
+        <Button variant="outline" onClick={regenerateMc} disabled={regeneratingMc}>{regeneratingMc ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}Gerar nova</Button>
+      </div>
+    </div>
+
+    <div className="overflow-hidden rounded-xl border bg-card">
+      <div className="border-b p-4">
+        <h2 className="font-semibold">Como chamar</h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          <code className="rounded bg-muted px-1">POST https://genesgroup.vercel.app/api/integrations/mc-climatizacao/tickets</code>
+        </p>
+      </div>
+      <Table>
+        <TableHeader><TableRow><TableHead>Campo do corpo (JSON)</TableHead><TableHead>Descrição</TableHead></TableRow></TableHeader>
+        <TableBody>
+          <TableRow><TableCell className="font-mono text-xs">component_code</TableCell><TableCell className="text-sm text-muted-foreground">Obrigatório — código do componente/página que o sistema da MC exibe</TableCell></TableRow>
+          <TableRow><TableCell className="font-mono text-xs">description</TableCell><TableCell className="text-sm text-muted-foreground">Obrigatório — descrição do problema</TableCell></TableRow>
+          <TableRow><TableCell className="font-mono text-xs">cost_acknowledged</TableCell><TableCell className="text-sm text-muted-foreground">Obrigatório — true/false, ciência do custo adicional</TableCell></TableRow>
+          <TableRow><TableCell className="font-mono text-xs">requester_name</TableCell><TableCell className="text-sm text-muted-foreground">Opcional — quem reportou, do lado da MC</TableCell></TableRow>
+          <TableRow><TableCell className="font-mono text-xs">in_development</TableCell><TableCell className="text-sm text-muted-foreground">Opcional — true/false, projeto em desenvolvimento (até 3 ajustes grátis por página)</TableCell></TableRow>
+        </TableBody>
+      </Table>
+      <div className="border-t bg-muted/30 p-4">
+        <p className="mb-2 text-xs font-semibold text-muted-foreground">Resposta 201</p>
+        <code className="block overflow-x-auto rounded-md bg-muted px-3 py-2 font-mono text-xs">{'{ "task_id": "...", "os_number": "OS-0001" }'}</code>
+      </div>
     </div>
   </div>
 }
