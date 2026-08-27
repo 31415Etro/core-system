@@ -103,7 +103,7 @@ function TaskCard({ task, onOpen, onDragStart, onStatusChange }: {
     </div>
     {(task.requester_name || task.adjustment_page) && <div className="mt-3 space-y-1.5 border-t pt-3 text-xs text-muted-foreground">
       {task.requester_name && <p className="flex items-center gap-1.5"><UserRound className="h-3.5 w-3.5" />{task.requester_name}</p>}
-      {task.adjustment_page && <p className="truncate">Página: {task.adjustment_page}{task.in_development && " · Em desenvolvimento"}</p>}
+      {task.adjustment_page && <p className="truncate font-mono">{task.adjustment_page}{task.in_development && " · Em desenvolvimento"}</p>}
     </div>}
     <div className="mt-3 border-t pt-3" onClick={e => e.stopPropagation()}>
       <Select value={task.status} onValueChange={v => onStatusChange(v as TaskStatus)}>
@@ -133,7 +133,7 @@ function TaskDetail({ task, open, onOpenChange, clients, onLinkClient }: { task:
           <section><h3 className="text-sm font-semibold">Descrição</h3><p className="mt-2 text-sm leading-relaxed text-muted-foreground">{task.description}</p></section>
           {task.estimated_window && <section><h3 className="text-sm font-semibold">Prazo estimado</h3><div className="mt-2 rounded-lg border bg-muted/30 p-3 text-sm">{task.estimated_window}</div></section>}
           {task.request_type === "ajuste" && task.adjustment_page && (
-            <section><h3 className="text-sm font-semibold">Página do ajuste</h3><div className="mt-2 rounded-lg border bg-muted/30 p-3 text-sm">{task.adjustment_page}</div></section>
+            <section><h3 className="text-sm font-semibold">Página / código do componente</h3><div className="mt-2 rounded-lg border bg-muted/30 p-3 font-mono text-sm">{task.adjustment_page}</div></section>
           )}
           {task.request_type === "ajuste" && task.in_development && (
             <section className="flex items-start gap-2 rounded-lg border border-blue-300 bg-blue-50 p-3 text-sm text-blue-900">
