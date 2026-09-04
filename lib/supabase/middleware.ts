@@ -13,7 +13,9 @@ const publicPaths = [
   "/campo/atendimento",
   "/campo/checklist",
   "/abertura-chamado",
+  "/acompanhamento-chamados",
   "/api/public/tasks",
+  "/api/public/tickets/search",
 ]
 
 const publicPathPrefixes = ["/api/agent/", "/api/integrations/"]
