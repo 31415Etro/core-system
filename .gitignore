@@ -48,3 +48,6 @@ next-env.d.ts
 scripts/.import_checkpoint.json
 
 .claude/
+
+# Cópias locais feitas pelo Windows (ex.: "pasta - Copia")
+* - Copia/
