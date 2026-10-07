@@ -1,6 +1,7 @@
 "use client"
 import { FormEvent, useEffect, useMemo, useState } from "react"
-import { ArrowDownLeft, ArrowUpRight, CircleDollarSign, Download, Loader2, Plus, Search, WalletCards } from "lucide-react"
+import { AlertTriangle, ArrowDownLeft, ArrowUpRight, BarChart3, CalendarClock, CircleDollarSign, Download, Loader2, Plus, Receipt, Repeat, TrendingDown, TrendingUp, WalletCards } from "lucide-react"
+import { useRouter } from "next/navigation"
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 import { PageLayout } from "@/components/page-layout"
 import { Button } from "@/components/ui/button"
@@ -8,8 +9,17 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { DataTable, type DataTableColumn } from "@/components/core/data-table"
+import { CardHeader, GlassCard } from "@/components/core/glass-card"
+import { MetricCard } from "@/components/core/metric-card"
+import { notify } from "@/components/core/notify"
+import { PageContainer, PageHeader } from "@/components/core/page-header"
+import { StatusBadge } from "@/components/core/status-badge"
+import { EmptyState, MetricSkeleton, Skeleton } from "@/components/core/states"
 import { brl } from "@/lib/it-service-data"
+import { useApi } from "@/lib/use-api"
+import { useQueryParam } from "@/lib/use-query-param"
 import { createClient } from "@/lib/supabase/client"
 
 type EntryType = "income" | "expense"
@@ -22,6 +32,7 @@ function EntryForm({ onCreated }: { onCreated: (entry: Entry) => void }) {
   const [open, setOpen] = useState(false)
   const [type, setType] = useState<EntryType>("income")
   const [saving, setSaving] = useState(false)
+  useQueryParam("novo", () => setOpen(true))
 
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -46,15 +57,16 @@ function EntryForm({ onCreated }: { onCreated: (entry: Entry) => void }) {
       const t = payload.transaction
       onCreated({ id: t.id, date: t.transaction_date, description: t.description, account: t.account_name || "—", category: t.category || "Outros", type: t.type, amount: Number(t.amount), status: t.status === "paid" ? "Pago" : "Pendente" })
       setOpen(false)
+      notify.success("Movimentação registrada", t.description)
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Erro ao salvar movimentação")
+      notify.error("Erro ao salvar movimentação", error instanceof Error ? error.message : undefined)
     } finally {
       setSaving(false)
     }
   }
 
   return <Dialog open={open} onOpenChange={setOpen}>
-    <DialogTrigger asChild><Button><Plus className="h-4 w-4" />Nova movimentação</Button></DialogTrigger>
+    <DialogTrigger asChild><Button><Plus />Nova movimentação</Button></DialogTrigger>
     <DialogContent className="max-w-2xl">
       <DialogHeader><DialogTitle>Cadastrar entrada ou saída</DialogTitle></DialogHeader>
       <form onSubmit={submit} className="grid gap-4 md:grid-cols-2">
@@ -71,66 +83,268 @@ function EntryForm({ onCreated }: { onCreated: (entry: Entry) => void }) {
   </Dialog>
 }
 
+type Status = "Pago" | "Pendente" | "Atrasado"
+const statusOf = (e: Entry): Status => (e.status === "Pago" ? "Pago" : e.date < isoToday() ? "Atrasado" : "Pendente")
+const statusTone = { Pago: "success", Pendente: "neutral", Atrasado: "danger" } as const
+const fmtDay = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString("pt-BR")
+const brl0 = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 })
+const toEntry = (t: any): Entry => ({
+  id: t.id, date: t.transaction_date, description: t.description, account: t.account_name || "—",
+  category: t.category || "Outros", type: t.type as EntryType, amount: Number(t.amount),
+  status: t.status === "paid" ? "Pago" as const : "Pendente" as const,
+})
+const TABS = ["visao", "receitas", "despesas", "receber", "recorrencias"] as const
+type Tab = (typeof TABS)[number]
+const ALL = "all"
+
+type Recurrence = { id: string; client: string; description: string; amount: number; dueDay: number | null; source: string }
+
+function downloadCsv(name: string, rows: (string | number)[][]) {
+  const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`
+  const blob = new Blob(["﻿" + rows.map(r => r.map(esc).join(";")).join("\n")], { type: "text/csv;charset=utf-8" })
+  const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${name}.csv`; a.click(); URL.revokeObjectURL(url)
+}
+
+function entryColumns(kind: EntryType): DataTableColumn<Entry>[] {
+  return [
+    { id: "data", header: "Vencimento", value: e => e.date, cell: e => <span className="tabular-nums text-zinc-300">{fmtDay(e.date)}</span> },
+    { id: "descricao", header: "Descrição", value: e => e.description, cell: e => (
+      <div className="flex items-center gap-3">
+        <span className={`grid size-8 shrink-0 place-items-center rounded-full border ${kind === "income" ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-400" : "border-white/10 bg-white/[0.05] text-zinc-300"}`}>{kind === "income" ? <ArrowDownLeft className="size-4" /> : <ArrowUpRight className="size-4" />}</span>
+        <span className="max-w-[320px] truncate font-medium text-foreground">{e.description}</span>
+      </div>
+    ) },
+    { id: "categoria", header: kind === "income" ? "Tipo" : "Categoria", value: e => e.category, cell: e => <span className="text-zinc-300">{e.category}</span> },
+    { id: "conta", header: "Conta", value: e => e.account, cell: e => <span className="text-zinc-300">{e.account}</span> },
+    { id: "status", header: "Status", value: e => statusOf(e), cell: e => <StatusBadge tone={statusTone[statusOf(e)]}>{statusOf(e)}</StatusBadge> },
+    { id: "valor", header: "Valor", align: "right", value: e => e.amount, cell: e => <span className={`font-semibold ${kind === "income" ? "text-emerald-400" : "text-zinc-200"}`}>{kind === "income" ? "+" : "−"} {brl(e.amount)}</span> },
+  ]
+}
+
 export function FinanceDashboard() {
+  const [tab, setTab] = useState<Tab>("visao")
   const [entries, setEntries] = useState<Entry[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [maintenanceRevenue, setMaintenanceRevenue] = useState(0)
   const [projectsTotal, setProjectsTotal] = useState(0)
-  const [account, setAccount] = useState("all"), [type, setType] = useState("all"), [query, setQuery] = useState(""), [from, setFrom] = useState(monthStart()), [to, setTo] = useState(isoToday())
+  const [maintenanceRows, setMaintenanceRows] = useState<{ client_id: string; maintenance_monthly_value: number | null }[]>([])
+  const [from, setFrom] = useState(monthStart()), [to, setTo] = useState(isoToday())
+  const [account, setAccount] = useState(ALL)
+  const [status, setStatus] = useState(ALL)
+  const [extra, setExtra] = useState<Entry[]>([])
+  const router = useRouter()
+
+  // Contas a receber considera todo o histórico (não só o período); clientes alimentam as recorrências.
+  const allTx = useApi<{ transactions: any[] }>("/api/financial-transactions")
+  const clientsQ = useApi<{ clients: { id: string; name: string; support_contracts?: { plan_name: string | null; monthly_value: number | null; due_day: number | null }[] }[] }>("/api/clients")
+
+  useQueryParam("aba", v => setTab((TABS as readonly string[]).includes(v) ? v as Tab : "visao"), { keep: true })
 
   useEffect(() => {
     let cancelled = false
     async function load() {
       setLoading(true)
-      const supabase = createClient()
-      const [transactionsPayload, financialsResult] = await Promise.all([
-        fetch(`/api/financial-transactions?from=${from}&to=${to}`).then(r => r.json()).catch(() => ({ error: "offline" })),
-        supabase.from("client_financials").select("has_maintenance, maintenance_monthly_value, project_total_value"),
-      ])
+      setLoadError(null)
+      const transactionsPayload = await fetch(`/api/financial-transactions?from=${from}&to=${to}`).then(r => r.json()).catch(() => ({ error: "offline" }))
       if (cancelled) return
-      if (transactionsPayload.error) {
-        setLoadError("Não foi possível carregar as movimentações financeiras.")
-      } else {
-        const rows: Entry[] = (transactionsPayload.transactions || []).map((t: any) => ({
-          id: t.id, date: t.transaction_date, description: t.description, account: t.account_name || "—",
-          category: t.category || "Outros", type: t.type as EntryType, amount: Number(t.amount),
-          status: t.status === "paid" ? "Pago" as const : "Pendente" as const,
-        }))
-        setEntries(rows)
+      if (transactionsPayload.error) setLoadError("Não foi possível carregar as movimentações financeiras.")
+      else setEntries((transactionsPayload.transactions || []).map(toEntry))
+      try {
+        const { data } = await createClient().from("client_financials").select("client_id, has_maintenance, maintenance_monthly_value, project_total_value")
+        if (cancelled) return
+        const financials = (data ?? []) as any[]
+        setMaintenanceRevenue(financials.filter(f => f.has_maintenance).reduce((s, f) => s + (f.maintenance_monthly_value ?? 0), 0))
+        setProjectsTotal(financials.reduce((s, f) => s + (f.project_total_value ?? 0), 0))
+        setMaintenanceRows(financials.filter(f => f.has_maintenance))
+      } catch {
+        // Supabase não configurado neste ambiente: indicadores de contrato ficam zerados.
       }
-      const financials = financialsResult.data ?? []
-      setMaintenanceRevenue(financials.filter((f: any) => f.has_maintenance).reduce((s: number, f: any) => s + (f.maintenance_monthly_value ?? 0), 0))
-      setProjectsTotal(financials.reduce((s: number, f: any) => s + (f.project_total_value ?? 0), 0))
-      setLoading(false)
+      if (!cancelled) setLoading(false)
     }
     load()
     return () => { cancelled = true }
   }, [from, to])
 
-  const accounts = useMemo(() => [...new Set(entries.map(e => e.account))], [entries])
-  const filtered = useMemo(() => entries.filter(e => (account === "all" || e.account === account) && (type === "all" || e.type === type) && `${e.description} ${e.category}`.toLowerCase().includes(query.toLowerCase())), [entries, account, type, query])
-  const income = filtered.filter(e => e.type === "income").reduce((s, e) => s + e.amount, 0), expense = filtered.filter(e => e.type === "expense").reduce((s, e) => s + e.amount, 0)
-  const chartData = useMemo(() => {
-    const daily = new Map<string, { date: string; label: string; Entradas: number; Saídas: number }>()
-    for (const entry of filtered) { const current = daily.get(entry.date) ?? { date: entry.date, label: new Date(`${entry.date}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }), Entradas: 0, Saídas: 0 }; if (entry.type === "income") current.Entradas += entry.amount; else current.Saídas += entry.amount; daily.set(entry.date, current) }
-    return [...daily.values()].sort((a, b) => a.date.localeCompare(b.date))
-  }, [filtered])
+  const periodEntries = useMemo(() => [...extra.filter(e => e.date >= from && e.date <= to && !entries.some(x => x.id === e.id)), ...entries], [entries, extra, from, to])
+  const accounts = useMemo(() => [...new Set(periodEntries.map(e => e.account))], [periodEntries])
+  const byFilters = (e: Entry) => (account === ALL || e.account === account) && (status === ALL || statusOf(e) === status)
+  const incomes = periodEntries.filter(e => e.type === "income")
+  const expenses = periodEntries.filter(e => e.type === "expense")
+  const income = incomes.reduce((s, e) => s + e.amount, 0)
+  const expense = expenses.reduce((s, e) => s + e.amount, 0)
 
-  return <PageLayout><div className="mx-auto max-w-[1440px] space-y-6"><header className="flex flex-col justify-between gap-4 border-b pb-5 md:flex-row md:items-end"><div><h1 className="text-3xl font-semibold tracking-tight">Financeiro</h1><p className="mt-1 text-sm text-muted-foreground">Contas, entradas e saídas detalhadas por período.</p></div><div className="flex gap-2"><Button variant="outline"><Download className="h-4 w-4" />Exportar</Button><EntryForm onCreated={entry => setEntries(current => [entry, ...current])} /></div></header>
-    {loading ? <div className="grid min-h-[300px] place-items-center text-sm text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /></div> : <>
-      {loadError && <p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">{loadError}</p>}
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <div className="border-l-2 border-primary bg-card px-5 py-4"><div className="flex items-center justify-between"><p className="text-sm text-muted-foreground">Receita recorrente (manutenção)</p><CircleDollarSign className="h-4 w-4 text-primary" /></div><p className="mt-2 text-2xl font-semibold tabular-nums">{brl(maintenanceRevenue)}</p><p className="mt-1 text-xs text-muted-foreground">Soma dos contratos de manutenção ativos</p></div>
-        <div className="border-l-2 border-primary bg-card px-5 py-4"><div className="flex items-center justify-between"><p className="text-sm text-muted-foreground">Total em projetos contratados</p><WalletCards className="h-4 w-4 text-primary" /></div><p className="mt-2 text-2xl font-semibold tabular-nums">{brl(projectsTotal)}</p><p className="mt-1 text-xs text-muted-foreground">Soma do valor total de todos os projetos</p></div>
-        <div className="border-l-2 border-emerald-600 bg-card px-5 py-4"><p className="text-sm text-muted-foreground">Entradas no período</p><p className="mt-2 text-2xl font-semibold tabular-nums text-emerald-700">{brl(income)}</p></div>
-        <div className="border-l-2 border-red-600 bg-card px-5 py-4"><p className="text-sm text-muted-foreground">Saídas no período</p><p className="mt-2 text-2xl font-semibold tabular-nums text-red-700">{brl(expense)}</p></div>
+  const receivables = useMemo(() => {
+    const all = [...extra, ...(allTx.data?.transactions ?? []).map(toEntry)]
+    const unique = [...new Map(all.map(e => [e.id, e])).values()]
+    return unique.filter(e => e.type === "income" && e.status === "Pendente").sort((a, b) => a.date.localeCompare(b.date))
+  }, [allTx.data, extra])
+  const overdue = receivables.filter(e => statusOf(e) === "Atrasado")
+  const toReceive = receivables.reduce((s, e) => s + e.amount, 0)
+
+  const recurrences = useMemo<Recurrence[]>(() => {
+    const clients = clientsQ.data?.clients ?? []
+    const nameOf = (id: string) => clients.find(c => c.id === id)?.name ?? "Cliente"
+    const fromContracts = clients.flatMap(c => (c.support_contracts ?? []).filter(sc => sc.monthly_value).map((sc, i) => ({ id: `sc-${c.id}-${i}`, client: c.name, description: sc.plan_name ? `Plano ${sc.plan_name}` : "Plano de suporte", amount: Number(sc.monthly_value), dueDay: sc.due_day, source: "Plano de suporte" })))
+    const fromMaintenance = maintenanceRows.filter(m => m.maintenance_monthly_value).map(m => ({ id: `mt-${m.client_id}`, client: nameOf(m.client_id), description: "Manutenção mensal", amount: Number(m.maintenance_monthly_value), dueDay: null, source: "Financeiro do projeto" }))
+    return [...fromContracts, ...fromMaintenance].sort((a, b) => a.client.localeCompare(b.client))
+  }, [clientsQ.data, maintenanceRows])
+
+  const chartData = useMemo(() => {
+    const daily = new Map<string, { date: string; label: string; Receitas: number; Despesas: number }>()
+    for (const e of periodEntries) { const cur = daily.get(e.date) ?? { date: e.date, label: new Date(`${e.date}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }), Receitas: 0, Despesas: 0 }; if (e.type === "income") cur.Receitas += e.amount; else cur.Despesas += e.amount; daily.set(e.date, cur) }
+    return [...daily.values()].sort((a, b) => a.date.localeCompare(b.date))
+  }, [periodEntries])
+
+  function changeTab(next: string) {
+    setTab(next as Tab)
+    setStatus(ALL)
+    router.replace(`/financeiro?aba=${next}`, { scroll: false })
+  }
+
+  function exportTab() {
+    const header = ["Data", "Descrição", "Categoria", "Conta", "Status", "Valor"]
+    const rows = (list: Entry[]) => list.map(e => [e.date, e.description, e.category, e.account, statusOf(e), e.amount.toFixed(2).replace(".", ",")])
+    if (tab === "receitas") downloadCsv(`receitas-${from}-a-${to}`, [header, ...rows(incomes.filter(byFilters))])
+    else if (tab === "despesas") downloadCsv(`despesas-${from}-a-${to}`, [header, ...rows(expenses.filter(byFilters))])
+    else if (tab === "receber") downloadCsv("contas-a-receber", [header, ...rows(receivables)])
+    else if (tab === "recorrencias") downloadCsv("recorrencias", [["Cliente", "Descrição", "Valor", "Periodicidade", "Vencimento"], ...recurrences.map(r => [r.client, r.description, r.amount.toFixed(2).replace(".", ","), "Mensal", r.dueDay ? `Dia ${r.dueDay}` : ""])])
+    else downloadCsv(`financeiro-${from}-a-${to}`, [header, ...rows(periodEntries)])
+  }
+
+  const setPreset = (p: "mes" | "anterior" | "90") => {
+    const d = new Date()
+    if (p === "mes") { setFrom(monthStart()); setTo(isoToday()) }
+    if (p === "anterior") { setFrom(new Date(d.getFullYear(), d.getMonth() - 1, 1).toISOString().slice(0, 10)); setTo(new Date(d.getFullYear(), d.getMonth(), 0).toISOString().slice(0, 10)) }
+    if (p === "90") { const s = new Date(d); s.setDate(s.getDate() - 89); setFrom(s.toISOString().slice(0, 10)); setTo(isoToday()) }
+  }
+
+  const periodBar = (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button variant="ghost" size="sm" onClick={() => setPreset("mes")}>Este mês</Button>
+      <Button variant="ghost" size="sm" onClick={() => setPreset("anterior")}>Mês passado</Button>
+      <Button variant="ghost" size="sm" onClick={() => setPreset("90")}>90 dias</Button>
+      <Input aria-label="Data inicial" type="date" value={from} max={to} onChange={e => setFrom(e.target.value)} className="h-9 w-[150px]" />
+      <span className="text-xs text-subtle">até</span>
+      <Input aria-label="Data final" type="date" value={to} min={from} onChange={e => setTo(e.target.value)} className="h-9 w-[150px]" />
+    </div>
+  )
+
+  const filtersToolbar = (
+    <>
+      <Select value={account} onValueChange={setAccount}><SelectTrigger className="h-10 w-[170px]" aria-label="Conta"><SelectValue /></SelectTrigger><SelectContent><SelectItem value={ALL}>Todas as contas</SelectItem>{accounts.map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}</SelectContent></Select>
+      <Select value={status} onValueChange={setStatus}><SelectTrigger className="h-10 w-[160px]" aria-label="Status"><SelectValue /></SelectTrigger><SelectContent><SelectItem value={ALL}>Todos os status</SelectItem><SelectItem value="Pago">Pago</SelectItem><SelectItem value="Pendente">Pendente</SelectItem><SelectItem value="Atrasado">Atrasado</SelectItem></SelectContent></Select>
+    </>
+  )
+
+  const receivableColumns: DataTableColumn<Entry>[] = [
+    { id: "descricao", header: "Descrição", value: e => e.description, cell: e => <span className="max-w-[320px] truncate font-medium text-foreground">{e.description}</span> },
+    { id: "valor", header: "Valor", align: "right", value: e => e.amount, cell: e => <span className="font-semibold text-foreground">{brl(e.amount)}</span> },
+    { id: "vencimento", header: "Vencimento", value: e => e.date, cell: e => <span className="tabular-nums text-zinc-300">{fmtDay(e.date)}</span> },
+    { id: "dias", header: "Dias", value: e => Math.round((new Date(`${e.date}T12:00:00`).getTime() - Date.now()) / 864e5), cell: e => {
+      const d = Math.round((new Date(`${e.date}T12:00:00`).getTime() - Date.now()) / 864e5)
+      return <span className={d < 0 ? "text-red-400" : "text-zinc-300"}>{d < 0 ? `${-d} dias em atraso` : d === 0 ? "Vence hoje" : `Vence em ${d} dias`}</span>
+    } },
+    { id: "status", header: "Status", value: e => statusOf(e), cell: e => <StatusBadge tone={statusTone[statusOf(e)]}>{statusOf(e)}</StatusBadge> },
+    { id: "conta", header: "Conta", value: e => e.account, cell: e => <span className="text-zinc-300">{e.account}</span> },
+  ]
+
+  const recurrenceColumns: DataTableColumn<Recurrence>[] = [
+    { id: "cliente", header: "Cliente", value: r => r.client, cell: r => <span className="font-medium text-foreground">{r.client}</span> },
+    { id: "descricao", header: "Descrição", value: r => r.description, cell: r => <div><p className="text-zinc-300">{r.description}</p><p className="text-xs text-subtle">{r.source}</p></div> },
+    { id: "valor", header: "Valor", align: "right", value: r => r.amount, cell: r => <span className="font-semibold text-foreground">{brl(r.amount)}</span> },
+    { id: "periodicidade", header: "Periodicidade", cell: () => <span className="text-zinc-300">Mensal</span> },
+    { id: "vencimento", header: "Vencimento", value: r => r.dueDay ?? 99, cell: r => <span className="text-zinc-300">{r.dueDay ? `Dia ${r.dueDay}` : "—"}</span> },
+    { id: "status", header: "Status", cell: () => <StatusBadge tone="success">Ativa</StatusBadge> },
+  ]
+
+  const recurringTotal = recurrences.reduce((s, r) => s + r.amount, 0)
+
+  return <PageLayout><PageContainer>
+    <PageHeader title="Financeiro" description="Receitas, despesas, contas a receber e recorrências em um só lugar." actions={<><Button variant="outline" onClick={exportTab}><Download />Exportar</Button><EntryForm onCreated={entry => setExtra(current => [entry, ...current])} /></>} />
+
+    <Tabs value={tab} onValueChange={changeTab}>
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <TabsList aria-label="Seções do financeiro">
+          <TabsTrigger value="visao">Visão geral</TabsTrigger>
+          <TabsTrigger value="receitas">Receitas</TabsTrigger>
+          <TabsTrigger value="despesas">Despesas</TabsTrigger>
+          <TabsTrigger value="receber">Contas a receber{receivables.length ? ` (${receivables.length})` : ""}</TabsTrigger>
+          <TabsTrigger value="recorrencias">Recorrências</TabsTrigger>
+        </TabsList>
+        {(tab === "visao" || tab === "receitas" || tab === "despesas") && periodBar}
       </div>
-      <section className="rounded-xl border bg-card p-5"><div><p className="text-sm font-medium">Visão do período selecionado</p><p className="mt-1 text-xs text-muted-foreground">Valores agrupados por dia conforme os filtros do extrato</p></div>{chartData.length ? <div className="mt-4 h-[210px] w-full"><ResponsiveContainer width="100%" height="100%"><BarChart data={chartData} margin={{ top: 8, right: 8, left: 2, bottom: 0 }}><CartesianGrid vertical={false} strokeDasharray="3 3" /><XAxis dataKey="label" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} /><YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} width={58} tickFormatter={value => Number(value) >= 1000 ? `${Math.round(Number(value) / 1000)} mil` : String(value)} /><Tooltip cursor={{ fill: "hsl(var(--muted))", opacity: .45 }} formatter={value => brl(Number(value))} labelFormatter={label => `Dia ${label}`} /><Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} /><Bar dataKey="Entradas" fill="#059669" radius={[4, 4, 0, 0]} maxBarSize={36} /><Bar dataKey="Saídas" fill="#dc2626" radius={[4, 4, 0, 0]} maxBarSize={36} /></BarChart></ResponsiveContainer></div> : <div className="mt-4 grid h-[210px] place-items-center rounded-lg border border-dashed text-sm text-muted-foreground">Nenhuma movimentação para gerar o gráfico neste período.</div>}</section>
-      <section className="rounded-xl border bg-card"><div className="grid gap-3 border-b p-4 md:grid-cols-[1fr_150px_150px_150px_150px]"><div className="relative"><Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><Input className="pl-9" value={query} onChange={e => setQuery(e.target.value)} placeholder="Buscar descrição ou categoria" /></div><Select value={account} onValueChange={setAccount}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Todas as contas</SelectItem>{accounts.map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}</SelectContent></Select><Select value={type} onValueChange={setType}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Entradas e saídas</SelectItem><SelectItem value="income">Somente entradas</SelectItem><SelectItem value="expense">Somente saídas</SelectItem></SelectContent></Select><Input aria-label="Data inicial" type="date" value={from} onChange={e => setFrom(e.target.value)} /><Input aria-label="Data final" type="date" value={to} onChange={e => setTo(e.target.value)} /></div>
-        <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Data</TableHead><TableHead>Movimentação</TableHead><TableHead>Conta</TableHead><TableHead>Categoria</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Valor</TableHead></TableRow></TableHeader><TableBody>{filtered.map(e => <TableRow key={e.id}><TableCell className="whitespace-nowrap">{new Date(`${e.date}T12:00:00`).toLocaleDateString("pt-BR")}</TableCell><TableCell><div className="flex items-start gap-2"><span className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md ${e.type === "income" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>{e.type === "income" ? <ArrowDownLeft className="h-4 w-4" /> : <ArrowUpRight className="h-4 w-4" />}</span><p className="font-medium">{e.description}</p></div></TableCell><TableCell>{e.account}</TableCell><TableCell>{e.category}</TableCell><TableCell><span className={`text-xs font-medium ${e.status === "Pago" ? "text-emerald-700" : "text-amber-700"}`}>{e.status}</span></TableCell><TableCell className={`text-right font-semibold tabular-nums ${e.type === "income" ? "text-emerald-700" : "text-red-700"}`}>{e.type === "income" ? "+" : "−"} {brl(e.amount)}</TableCell></TableRow>)}{filtered.length === 0 && <TableRow><TableCell colSpan={6} className="h-32 text-center text-muted-foreground">Nenhuma movimentação encontrada neste período.</TableCell></TableRow>}</TableBody></Table></div>
-        <div className="flex items-center justify-between border-t px-4 py-3 text-xs text-muted-foreground"><span>{filtered.length} movimentações exibidas</span><span>Período: {from ? new Date(`${from}T12:00:00`).toLocaleDateString("pt-BR") : "início"} até {to ? new Date(`${to}T12:00:00`).toLocaleDateString("pt-BR") : "hoje"}</span></div>
-      </section>
-    </>}
-  </div></PageLayout>
+
+      {loadError && <p role="alert" className="mt-4 rounded-xl border border-red-500/20 bg-red-500/[0.06] p-3 text-sm text-red-300">{loadError}</p>}
+
+      <TabsContent value="visao" className="mt-4 space-y-4">
+        {loading ? <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{[0, 1, 2, 3, 4, 5].map(i => <MetricSkeleton key={i} />)}</div> : (
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <MetricCard icon={TrendingUp} label="Receita no período" value={brl0(income)} note={`${incomes.length} lançamentos`} />
+            <MetricCard icon={TrendingDown} label="Despesas" value={brl0(expense)} note={`${expenses.length} lançamentos`} />
+            <MetricCard icon={WalletCards} label="Lucro" value={<span className={income - expense >= 0 ? "text-emerald-400" : "text-red-400"}>{brl0(income - expense)}</span>} note={income ? `Margem de ${Math.round(((income - expense) / income) * 100)}%` : "Receitas menos despesas"} />
+            <MetricCard icon={CalendarClock} label="A receber" value={brl0(toReceive - overdue.reduce((s, e) => s + e.amount, 0))} note={`${receivables.length - overdue.length} em aberto`} loading={allTx.loading} menu={[{ label: "Ver contas a receber", onSelect: () => changeTab("receber") }]} />
+            <MetricCard icon={AlertTriangle} label="Atrasado" value={<span className={overdue.length ? "text-red-400" : undefined}>{brl0(overdue.reduce((s, e) => s + e.amount, 0))}</span>} note={`${overdue.length} vencidas`} loading={allTx.loading} menu={[{ label: "Ver atrasadas", onSelect: () => changeTab("receber") }]} />
+            <MetricCard icon={Repeat} label="Receita recorrente" value={brl0(maintenanceRevenue)} note="Contratos de manutenção ativos" menu={[{ label: "Ver recorrências", onSelect: () => changeTab("recorrencias") }]} />
+          </div>
+        )}
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+          <GlassCard><CardHeader icon={BarChart3} title="Receitas x Despesas" description="Valores por dia no período selecionado" />
+            {loading ? <Skeleton className="mt-4 h-[240px]" /> : chartData.length ? <div className="mt-4 h-[240px] w-full"><ResponsiveContainer width="100%" height="100%"><BarChart data={chartData} margin={{ top: 8, right: 8, left: 2, bottom: 0 }}><CartesianGrid vertical={false} stroke="rgba(255,255,255,0.06)" /><XAxis dataKey="label" tick={{ fontSize: 11, fill: "var(--core-text-subtle)" }} tickLine={false} axisLine={false} /><YAxis tick={{ fontSize: 10, fill: "var(--core-text-subtle)" }} tickLine={false} axisLine={false} width={58} tickFormatter={value => Number(value) >= 1000 ? `${Math.round(Number(value) / 1000)} mil` : String(value)} /><Tooltip cursor={{ fill: "rgba(255,255,255,0.04)" }} contentStyle={{ background: "rgba(18,18,20,0.95)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, fontSize: 12 }} labelStyle={{ color: "var(--core-text-muted)" }} formatter={value => brl(Number(value))} labelFormatter={label => `Dia ${label}`} /><Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} /><Bar dataKey="Receitas" fill="var(--core-yellow)" radius={[6, 6, 2, 2]} maxBarSize={32} /><Bar dataKey="Despesas" fill="#71717a" radius={[6, 6, 2, 2]} maxBarSize={32} /></BarChart></ResponsiveContainer></div>
+              : <EmptyState icon={BarChart3} title="Nenhuma movimentação neste período" description="Ajuste o período ou cadastre uma nova movimentação." className="mt-4 h-[240px]" />}
+          </GlassCard>
+          <GlassCard className="space-y-3"><CardHeader icon={Receipt} title="Últimos lançamentos" />
+            {loading ? <div className="space-y-2">{[0, 1, 2, 3].map(i => <Skeleton key={i} className="h-11" />)}</div> : periodEntries.length ? (
+              <ul className="divide-y divide-white/[0.05]">
+                {periodEntries.slice(0, 7).map(e => (
+                  <li key={e.id} className="flex items-center gap-3 py-2.5">
+                    <span className={`grid size-8 shrink-0 place-items-center rounded-full border ${e.type === "income" ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-400" : "border-white/10 bg-white/[0.05] text-zinc-300"}`}>{e.type === "income" ? <ArrowDownLeft className="size-4" /> : <ArrowUpRight className="size-4" />}</span>
+                    <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium text-foreground">{e.description}</p><p className="text-xs text-subtle">{fmtDay(e.date)} · {e.category}</p></div>
+                    <span className={`shrink-0 text-sm font-semibold tabular-nums ${e.type === "income" ? "text-emerald-400" : "text-zinc-200"}`}>{e.type === "income" ? "+" : "−"} {brl(e.amount)}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="py-6 text-center text-sm text-muted-foreground">Nenhum lançamento no período.</p>}
+          </GlassCard>
+        </div>
+      </TabsContent>
+
+      <TabsContent value="receitas" className="mt-4 space-y-2">
+        <DataTable data={incomes.filter(byFilters)} columns={entryColumns("income")} getRowId={e => e.id} loading={loading} searchText={e => `${e.description} ${e.category} ${e.account}`} searchPlaceholder="Buscar receita..." toolbar={filtersToolbar} pageSize={12} empty={{ title: "Nenhuma receita no período" }} />
+        <p className="text-xs text-subtle">Cliente e contrato de cada receita passam a ser vinculados automaticamente quando a venda gerar o financeiro (Fase 4).</p>
+      </TabsContent>
+
+      <TabsContent value="despesas" className="mt-4">
+        <DataTable data={expenses.filter(byFilters)} columns={entryColumns("expense")} getRowId={e => e.id} loading={loading} searchText={e => `${e.description} ${e.category} ${e.account}`} searchPlaceholder="Buscar despesa..." toolbar={filtersToolbar} pageSize={12} empty={{ title: "Nenhuma despesa no período" }} />
+      </TabsContent>
+
+      <TabsContent value="receber" className="mt-4 space-y-4">
+        <div className="grid gap-4 sm:grid-cols-3">
+          <MetricCard icon={CalendarClock} label="Total em aberto" value={brl0(toReceive)} note={`${receivables.length} contas`} loading={allTx.loading} />
+          <MetricCard icon={AlertTriangle} label="Atrasado" value={<span className={overdue.length ? "text-red-400" : undefined}>{brl0(overdue.reduce((s, e) => s + e.amount, 0))}</span>} note={`${overdue.length} vencidas`} loading={allTx.loading} />
+          <MetricCard icon={Receipt} label="Vence em 7 dias" value={brl0(receivables.filter(e => statusOf(e) === "Pendente" && e.date <= new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10)).reduce((s, e) => s + e.amount, 0))} note="Próximos vencimentos" loading={allTx.loading} />
+        </div>
+        <DataTable
+          data={receivables.filter(e => status === ALL || statusOf(e) === status)}
+          columns={receivableColumns}
+          getRowId={e => e.id}
+          loading={allTx.loading}
+          searchText={e => `${e.description} ${e.category} ${e.account}`}
+          searchPlaceholder="Buscar conta a receber..."
+          toolbar={<Select value={status} onValueChange={setStatus}><SelectTrigger className="h-10 w-[160px]" aria-label="Status"><SelectValue /></SelectTrigger><SelectContent><SelectItem value={ALL}>Todos os status</SelectItem><SelectItem value="Pendente">Pendente</SelectItem><SelectItem value="Atrasado">Atrasado</SelectItem></SelectContent></Select>}
+          pageSize={12}
+          empty={{ title: "Nenhuma conta em aberto", description: "Receitas cadastradas como pendentes aparecem aqui até serem pagas." }}
+        />
+      </TabsContent>
+
+      <TabsContent value="recorrencias" className="mt-4 space-y-4">
+        <div className="grid gap-4 sm:grid-cols-3">
+          <MetricCard icon={Repeat} label="Recorrência mensal" value={brl0(recurringTotal)} note={`${recurrences.length} recorrências ativas`} loading={clientsQ.loading} />
+          <MetricCard icon={CircleDollarSign} label="Manutenção" value={brl0(maintenanceRevenue)} note="Financeiro dos projetos" loading={loading} />
+          <MetricCard icon={WalletCards} label="Projetos contratados" value={brl0(projectsTotal)} note="Valor total de todos os projetos" loading={loading} />
+        </div>
+        <DataTable data={recurrences} columns={recurrenceColumns} getRowId={r => r.id} loading={clientsQ.loading} searchText={r => `${r.client} ${r.description}`} searchPlaceholder="Buscar cliente..." pageSize={12} empty={{ title: "Nenhuma recorrência ativa", description: "Planos de suporte e manutenções mensais dos clientes aparecem aqui." }} />
+      </TabsContent>
+    </Tabs>
+  </PageContainer></PageLayout>
 }

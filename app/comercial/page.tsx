@@ -1,2 +1,6 @@
-import { CommercialIT } from "@/components/it/service-pages"
-export default function Page(){ return <CommercialIT/> }
+import { redirect } from "next/navigation"
+
+// A prospecção agora é uma aba de Leads.
+export default function Page() {
+  redirect("/leads?aba=prospeccao")
+}

@@ -24,11 +24,11 @@ const STATUS_LABEL: Record<TicketStatus, string> = {
 }
 
 const STATUS_STYLE: Record<TicketStatus, string> = {
-  triagem: "border-slate-300 bg-slate-50 text-slate-700",
-  a_fazer: "border-blue-300 bg-blue-50 text-blue-700",
-  em_andamento: "border-amber-300 bg-amber-50 text-amber-800",
-  aguardando_cliente: "border-purple-300 bg-purple-50 text-purple-700",
-  concluido: "border-green-300 bg-green-50 text-green-700",
+  triagem: "border-white/10 bg-white/[0.04] text-zinc-300",
+  a_fazer: "border-sky-500/30 bg-sky-500/10 text-sky-300",
+  em_andamento: "border-amber-500/30 bg-amber-500/10 text-amber-300",
+  aguardando_cliente: "border-purple-500/30 bg-purple-500/10 text-purple-300",
+  concluido: "border-green-500/30 bg-green-500/10 text-green-400",
 }
 
 const PRIORITY_LABEL: Record<TicketPriority, string> = { baixa: "Baixa", media: "Média", alta: "Alta" }
@@ -88,7 +88,7 @@ export default function AcompanhamentoChamadosPage() {
             <Input className="mt-1" value={companyPrefix} onChange={e => setCompanyPrefix(e.target.value)} placeholder="Ex.: MC" maxLength={2} />
           </div>
         </div>
-        <p className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+        <p className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-300">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           Por privacidade, só mostramos chamados quando as duas informações batem exatamente com o que foi informado na abertura do chamado.
         </p>
@@ -98,7 +98,7 @@ export default function AcompanhamentoChamadosPage() {
         </Button>
       </form>
 
-      {errorMsg && <p className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">{errorMsg}</p>}
+      {errorMsg && <p className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">{errorMsg}</p>}
 
       {tickets && (
         <div className="space-y-3">

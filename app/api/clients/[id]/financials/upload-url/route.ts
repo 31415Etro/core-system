@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClientDocumentUploadUrl, type ClientDocumentKind } from "@/lib/storage"
 
-const KINDS: ClientDocumentKind[] = ["contract", "boas-vindas", "cronograma"]
+const KINDS: ClientDocumentKind[] = ["contract", "boas-vindas", "cronograma", "documento"]
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {

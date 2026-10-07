@@ -281,7 +281,7 @@ export default function AberturaChamadoPage() {
   if (result) {
     return (
       <div className="mx-auto flex min-h-[100dvh] max-w-lg flex-col items-center justify-center gap-4 p-6 text-center">
-        <CheckCircle2 className="h-12 w-12 text-green-600" />
+        <CheckCircle2 className="h-12 w-12 text-green-400" />
         <h1 className="text-2xl font-semibold">Chamado aberto com sucesso</h1>
         <p className="text-muted-foreground">Seu número de OS é</p>
         <p className="text-3xl font-bold tracking-tight">{result.os_number}</p>
@@ -319,7 +319,7 @@ export default function AberturaChamadoPage() {
             </SelectContent>
           </Select>
           {requestType && (
-            <div className="mt-2 flex gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+            <div className="mt-2 flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-300">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <p>{REQUEST_TYPE_INFO[requestType].description}</p>
             </div>
@@ -408,7 +408,7 @@ export default function AberturaChamadoPage() {
                 <Button type="button" variant="outline" size="sm" onClick={audio.reset}><Trash2 className="h-4 w-4" />Remover áudio</Button>
               </div>
             )}
-            {recordError && <p className="mt-2 text-sm text-red-700">{recordError}</p>}
+            {recordError && <p className="mt-2 text-sm text-red-400">{recordError}</p>}
             {!audio.speechSupported && !audio.audioUrl && <p className="mt-2 text-xs text-muted-foreground">Seu navegador não transcreve automaticamente, mas o áudio é salvo mesmo assim.</p>}
           </div>
         </div>
@@ -425,7 +425,7 @@ export default function AberturaChamadoPage() {
             <ul className="mt-3 space-y-1">
               {photos.map((photo, index) => (
                 <li key={`${photo.name}-${index}`} className="flex items-center justify-between rounded-md border px-3 py-1.5 text-sm">
-                  <span className="truncate">{photo.name} {photo.size > MAX_PHOTO_BYTES && <span className="text-red-600">(acima de 4MB)</span>}</span>
+                  <span className="truncate">{photo.name} {photo.size > MAX_PHOTO_BYTES && <span className="text-red-400">(acima de 4MB)</span>}</span>
                   <button type="button" onClick={() => removePhoto(index)} aria-label="Remover foto"><X className="h-4 w-4 text-muted-foreground" /></button>
                 </li>
               ))}
@@ -433,7 +433,7 @@ export default function AberturaChamadoPage() {
           )}
         </div>
 
-        {errorMsg && <p className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">{errorMsg}</p>}
+        {errorMsg && <p className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">{errorMsg}</p>}
 
         <Button type="submit" className="w-full" disabled={!canSubmit || submitting}>
           {submitting && <Loader2 className="h-4 w-4 animate-spin" />}

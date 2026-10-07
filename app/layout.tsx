@@ -10,9 +10,8 @@ import { Toaster } from "@/components/ui/toaster"
 import { TextNormalizer } from "@/components/text-normalizer"
 
 export const metadata: Metadata = {
-  title: "Gênes Group | Sistema de Gestão",
+  title: "Core | Sistema de Gestão",
   description: "Sistema interno de gestão de tarefas, chamados, clientes e financeiro",
-  generator: "v0.app",
   other: {
     google: "notranslate",
   },
@@ -24,7 +23,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="pt-BR" translate="no" className="notranslate">
+    <html lang="pt-BR" translate="no" className="notranslate dark" style={{ colorScheme: "dark" }}>
       <body className={`notranslate font-sans ${GeistSans.variable} ${GeistMono.variable} antialiased`} translate="no">
         <AuthProvider>
           <div className="app-bg" />

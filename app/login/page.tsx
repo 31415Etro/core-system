@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
-import { Mail, Lock, ServerCog } from "lucide-react"
+import { Mail, Lock } from "lucide-react"
+import { CoreMark } from "@/components/core/logo"
 import { useAuth } from "@/lib/auth-context"
 
 export default function LoginPage() {
@@ -54,74 +55,46 @@ function LoginForm() {
 
     toast({
       title: "Login realizado",
-      description: "Sessão local iniciada.",
+      description: "Bem-vindo ao Core.",
+      variant: "success",
     })
 
     router.replace(returnTo)
   }
 
   return (
-    <div className="relative min-h-screen flex items-center justify-center overflow-hidden bg-gradient-to-br from-blue-50 via-white to-blue-100">
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-20 left-10 w-72 h-72 bg-blue-200/30 rounded-full blur-3xl" />
-        <div className="absolute bottom-20 right-10 w-96 h-96 bg-blue-300/20 rounded-full blur-3xl" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-blue-100/30 rounded-full blur-3xl" />
-      </div>
+    <main className="relative grid min-h-[100dvh] place-items-center overflow-hidden px-4 py-10">
+      <div className="pointer-events-none absolute left-1/2 top-[18%] h-[420px] w-[420px] -translate-x-1/2 rounded-full bg-[radial-gradient(circle,rgba(255,190,0,0.14),transparent_65%)] blur-2xl" aria-hidden="true" />
 
-      <div className="relative z-10 w-full max-w-md px-4 md:px-6">
-        <div className="bg-white border border-gray-200 rounded-2xl shadow-2xl p-6 md:p-8 lg:p-10">
-          <div className="mb-6 md:mb-8 text-center">
-            <div className="flex justify-center mb-4 md:mb-6">
-              <div className="flex items-center gap-3 text-2xl font-semibold tracking-tight"><span className="grid h-12 w-12 place-items-center rounded-xl bg-blue-600 text-white"><ServerCog className="h-7 w-7"/></span><span>Gênes Group</span></div>
-            </div>
-            <p className="text-sm text-gray-600">Entre com sua conta para acessar o sistema.</p>
-          </div>
+      <div className="relative z-10 w-full max-w-[400px]">
+        <div className="mb-8 flex flex-col items-center text-center">
+          <CoreMark className="size-14 drop-shadow-[0_0_24px_rgba(255,190,0,0.35)]" />
+          <h1 className="mt-5 text-[26px] font-semibold tracking-tight text-foreground">Entrar no Core</h1>
+          <p className="mt-1.5 text-sm text-muted-foreground">Acesse sua conta para continuar.</p>
+        </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4 md:space-y-5">
-            <div className="space-y-2">
-              <Label htmlFor="email" className="text-sm font-medium">
-                Email
-              </Label>
+        <div className="glass rounded-[24px] p-6 sm:p-8">
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div className="space-y-1.5">
+              <Label htmlFor="email" className="text-[13px] font-medium text-zinc-300">E-mail</Label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="seu@email.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  disabled={isLoading}
-                  className="pl-10 h-11"
-                />
+                <Mail className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-subtle" />
+                <Input id="email" type="email" autoComplete="email" placeholder="seu@email.com" value={email} onChange={(e) => setEmail(e.target.value)} disabled={isLoading} className="pl-10" />
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="password" className="text-sm font-medium">
-                Senha
-              </Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="password" className="text-[13px] font-medium text-zinc-300">Senha</Label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="sua senha"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  disabled={isLoading}
-                  className="pl-10 h-11"
-                />
+                <Lock className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-subtle" />
+                <Input id="password" type="password" autoComplete="current-password" placeholder="Sua senha" value={password} onChange={(e) => setPassword(e.target.value)} disabled={isLoading} className="pl-10" />
               </div>
             </div>
 
-            <Button
-              type="submit"
-              className="w-full h-11 bg-blue-600 hover:bg-blue-700 text-white font-medium shadow-lg mt-6"
-              disabled={isLoading}
-            >
+            <Button type="submit" size="lg" className="mt-2 w-full" disabled={isLoading}>
               {isLoading ? (
                 <span className="flex items-center gap-2">
-                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span className="size-4 animate-spin rounded-full border-2 border-black/25 border-t-black" />
                   Entrando...
                 </span>
               ) : (
@@ -131,8 +104,8 @@ function LoginForm() {
           </form>
         </div>
 
-        <p className="text-center text-xs text-gray-600 mt-4 md:mt-6">Acesso restrito à equipe Gênes Group.</p>
+        <p className="mt-6 text-center text-xs text-subtle">Acesso restrito à equipe autorizada.</p>
       </div>
-    </div>
+    </main>
   )
 }

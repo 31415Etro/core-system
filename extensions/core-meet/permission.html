@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <title>CORE Meet — permitir microfone</title>
+    <link rel="stylesheet" href="popup.css" />
+    <style>
+      body { width: auto; min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+      .card { max-width: 420px; }
+    </style>
+  </head>
+  <body>
+    <section class="card center">
+      <img src="icons/icon128.png" alt="" width="56" height="56" />
+      <h1>Permitir o microfone para a CORE Meet</h1>
+      <p class="muted">Para a ata incluir o que <b>você</b> fala, a extensão precisa gravar seu microfone. O Chrome vai perguntar uma única vez.</p>
+      <button id="allow" class="btn primary">Permitir microfone</button>
+      <p id="status" class="muted small" aria-live="polite"></p>
+    </section>
+    <script src="permission.js"></script>
+  </body>
+</html>

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { createClient } from "@/lib/supabase/server"
+import { createAdminClient, createClient } from "@/lib/supabase/server"
 
 export async function GET() {
   try {
@@ -53,6 +53,8 @@ export async function GET() {
       role: profile.role || "user",
       permissions: storedPermissions,
       clientId: profile.client_id || null,
+      // Lido direto do Auth (o token da sessão guarda os dados de quando a pessoa entrou).
+      mustChangePassword: (await createAdminClient().auth.admin.getUserById(authUser.id)).data.user?.user_metadata?.must_change_password === true,
     }
 
     console.log("[v0] Returning user data:", { id: user.id, email: user.email, role: user.role })

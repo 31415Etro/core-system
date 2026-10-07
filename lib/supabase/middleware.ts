@@ -18,7 +18,8 @@ const publicPaths = [
   "/api/public/tickets/search",
 ]
 
-const publicPathPrefixes = ["/api/agent/", "/api/integrations/"]
+// /api/meet/ext/: extensão CORE Meet, autenticada por token próprio (lib/server/meet-auth.ts)
+const publicPathPrefixes = ["/api/agent/", "/api/integrations/", "/api/meet/ext/"]
 
 const publicPatterns = [
   /^\/api\/ordens-servico\/[^/]+\/eventos$/,
@@ -34,6 +35,8 @@ const pagePermissions = [
   { prefix: "/estoque", permission: "estoque" },
   { prefix: "/financeiro", permission: "financeiro" },
   { prefix: "/comercial", permission: "comercial" },
+  { prefix: "/leads", permission: "comercial" },
+  { prefix: "/pipeline", permission: "comercial" },
   { prefix: "/pmoc", permission: "pmoc" },
   { prefix: "/orcamento", permission: "orcamento" },
   { prefix: "/contratos", permission: "contratos" },

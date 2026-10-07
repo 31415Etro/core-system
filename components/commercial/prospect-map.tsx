@@ -32,7 +32,7 @@ function FlyTo({ target }: { target: [number, number] | null }) {
 
 function PromoteButton({ company, onPromoted }: { company: ProspectCompany; onPromoted: (id: string) => void }) {
   const [loading, setLoading] = useState(false)
-  if (company.linked_opportunity_id) return <span className="text-xs font-medium text-emerald-600">Já está no pipeline</span>
+  if (company.linked_opportunity_id) return <span className="text-xs font-medium text-emerald-400">Já está no pipeline</span>
   return <Button
     size="sm"
     disabled={loading}

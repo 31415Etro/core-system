@@ -44,7 +44,7 @@ export async function uploadTaskAudio(taskId: string, file: File) {
   }
 }
 
-export const CLIENT_DOCUMENT_KINDS = { contract: "contratos", "boas-vindas": "apresentacoes/boas-vindas", cronograma: "apresentacoes/cronograma" } as const
+export const CLIENT_DOCUMENT_KINDS = { contract: "contratos", "boas-vindas": "apresentacoes/boas-vindas", cronograma: "apresentacoes/cronograma", documento: "documentos" } as const
 export type ClientDocumentKind = keyof typeof CLIENT_DOCUMENT_KINDS
 
 // Gera uma URL assinada para o navegador subir o PDF direto no Supabase Storage.
@@ -65,4 +65,10 @@ export async function getSignedClientDocumentUrl(storagePath: string, expiresInS
     .createSignedUrl(storagePath, expiresInSeconds)
   if (error) throw new Error(`Falha ao gerar link do arquivo: ${error.message}`)
   return data.signedUrl
+}
+
+export async function removeClientDocument(storagePath: string) {
+  const supabase = createAdminClient()
+  const { error } = await supabase.storage.from(CLIENT_CONTRACTS_BUCKET).remove([storagePath])
+  if (error) throw new Error(`Falha ao remover arquivo: ${error.message}`)
 }

@@ -14,10 +14,14 @@ export interface User {
   role: UserRole
   permissions: PagePermission[]
   clientId?: string | null
+  /** Senha provisória (criada ou redefinida por um administrador): precisa trocar ao entrar. */
+  mustChangePassword?: boolean
 }
 
 interface AuthContextType {
   user: User | null
+  /** Marca que a senha provisória já foi trocada (sem recarregar a sessão). */
+  passwordChanged: () => void
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>
   logout: () => Promise<void>
   isLoading: boolean
@@ -48,6 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user?.role])
 
   useEffect(() => {
+    if (process.env.NEXT_PUBLIC_SUPABASE_URL) window.localStorage.removeItem(LOCAL_SESSION_KEY)
     const localSession = window.localStorage.getItem(LOCAL_SESSION_KEY)
     if (localSession) {
       try {
@@ -107,6 +112,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error("Erro ao tentar sessao real do Supabase:", err)
     }
 
+    // Com Supabase configurado (produção), só vale a conta real: nada de admin local.
+    if (process.env.NEXT_PUBLIC_SUPABASE_URL) return { success: false, error: "E-mail ou senha inválidos" }
+
     // Sem conta real do Supabase para este e-mail: mantém o fluxo local (protótipo de Configurações > Usuários e o bypass de admin local).
     const exists = getLocalUsers().some(item => item.email === trimmedEmail.toLowerCase())
     if (exists) {
@@ -130,7 +138,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     router.push("/login")
   }, [router])
 
-  const value = useMemo(() => ({ user, login, logout, isLoading }), [user, login, logout, isLoading])
+  const passwordChanged = useCallback(() => setUser((u) => (u ? { ...u, mustChangePassword: false } : u)), [])
+
+  const value = useMemo(() => ({ user, login, logout, isLoading, passwordChanged }), [user, login, logout, isLoading, passwordChanged])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

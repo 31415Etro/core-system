@@ -28,7 +28,6 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
         phone: company.telefone,
         email: company.email,
         socios: company.socios ?? [],
-        stage: "prospeccao",
         notes: `Importado da base de CNAE/SC · ${company.municipio ?? ""}`.trim(),
       })
       .select("*")

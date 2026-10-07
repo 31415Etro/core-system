@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState, type DragEvent } from "react"
-import { AlertTriangle, CalendarClock, CheckCircle2, Clock3, Globe, Loader2, Paperclip, Plus, Search, ShieldAlert, UserRound } from "lucide-react"
+import { AlertTriangle, CalendarClock, CheckCircle2, Clock3, FolderKanban, Globe, Loader2, Paperclip, Plus, Search, ShieldAlert, UserRound } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { useQueryParam } from "@/lib/use-query-param"
+import { ClientProjectPicker } from "@/components/core/client-project-picker"
 
 type TaskStatus = "triagem" | "a_fazer" | "em_andamento" | "aguardando_cliente" | "concluido"
 type TaskPriority = "baixa" | "media" | "alta"
@@ -18,6 +20,7 @@ type ClientOption = { id: string; name: string }
 type Task = {
   id: string; kind: "tarefa" | "chamado"; os_number: string | null; source: "interno" | "publico"
   client_id: string | null; company_name: string | null; requester_name: string | null
+  project_id?: string | null; project?: { id: string; name: string } | null
   request_type: RequestType | null; cost_acknowledged: boolean | null; estimated_window: string | null
   title: string; description: string; priority: TaskPriority; status: TaskStatus
   due_date: string | null; completed_at: string | null; created_at: string; audio_transcript: string | null
@@ -33,17 +36,19 @@ const columns: { id: TaskStatus; label: string; note: string }[] = [
   { id: "concluido", label: "Concluído", note: "Finalizado" },
 ]
 
-const priorityStyle: Record<TaskPriority, string> = { baixa: "border-slate-300 bg-slate-50 text-slate-700", media: "border-amber-300 bg-amber-50 text-amber-800", alta: "border-red-300 bg-red-50 text-red-700" }
+const priorityStyle: Record<TaskPriority, string> = { baixa: "border-white/10 bg-white/[0.04] text-zinc-300", media: "border-amber-500/30 bg-amber-500/10 text-amber-300", alta: "border-red-500/30 bg-red-500/10 text-red-400" }
 const priorityLabel: Record<TaskPriority, string> = { baixa: "Baixa", media: "Média", alta: "Alta" }
 const requestTypeLabel: Record<RequestType, string> = { nova_funcionalidade: "Nova funcionalidade", manutencao: "Manutenção", nova_pagina: "Nova página", ajuste: "Ajuste" }
 
-function NewTaskForm({ onCreated }: { onCreated: (task: Task) => void }) {
+function NewTaskForm({ onCreated, clients }: { onCreated: (task: Task) => void; clients: ClientOption[] }) {
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
   const [priority, setPriority] = useState<TaskPriority>("media")
   const [dueDate, setDueDate] = useState("")
+  const [link, setLink] = useState<{ clientId: string | null; projectId: string | null }>({ clientId: null, projectId: null })
+  useQueryParam("novo", () => setOpen(true))
 
   async function submit() {
     if (!title.trim() || !description.trim()) return
@@ -52,13 +57,13 @@ function NewTaskForm({ onCreated }: { onCreated: (task: Task) => void }) {
       const response = await fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, description, priority, due_date: dueDate || null }),
+        body: JSON.stringify({ title, description, priority, due_date: dueDate || null, client_id: link.clientId, project_id: link.projectId }),
       })
       const payload = await response.json()
       if (!response.ok) throw new Error(payload.error || "Erro ao criar tarefa")
       onCreated(payload.task)
       setOpen(false)
-      setTitle(""); setDescription(""); setPriority("media"); setDueDate("")
+      setTitle(""); setDescription(""); setPriority("media"); setDueDate(""); setLink({ clientId: null, projectId: null })
     } catch (error) {
       alert(error instanceof Error ? error.message : "Erro ao criar tarefa")
     } finally {
@@ -68,11 +73,12 @@ function NewTaskForm({ onCreated }: { onCreated: (task: Task) => void }) {
 
   return <Dialog open={open} onOpenChange={setOpen}>
     <DialogTrigger asChild><Button><Plus className="h-4 w-4" />Nova tarefa</Button></DialogTrigger>
-    <DialogContent className="max-w-lg">
-      <DialogHeader><DialogTitle>Nova tarefa interna</DialogTitle></DialogHeader>
+    <DialogContent className="max-w-xl">
+      <DialogHeader><DialogTitle>Nova tarefa</DialogTitle></DialogHeader>
       <div className="grid gap-4">
         <div><Label>Título</Label><Input className="mt-1" value={title} onChange={e => setTitle(e.target.value)} placeholder="O que precisa ser feito" /></div>
         <div><Label>Descrição</Label><Textarea className="mt-1" value={description} onChange={e => setDescription(e.target.value)} placeholder="Detalhes da tarefa" /></div>
+        <ClientProjectPicker clients={clients} clientId={link.clientId} projectId={link.projectId} onChange={setLink} />
         <div className="grid gap-4 sm:grid-cols-2">
           <div><Label>Prioridade</Label><Select value={priority} onValueChange={v => setPriority(v as TaskPriority)}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="baixa">Baixa</SelectItem><SelectItem value="media">Média</SelectItem><SelectItem value="alta">Alta</SelectItem></SelectContent></Select></div>
           <div><Label>Prazo (opcional)</Label><Input className="mt-1" type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} /></div>
@@ -94,12 +100,13 @@ function TaskCard({ task, onOpen, onDragStart, onStatusChange }: {
     <button onClick={onOpen} className="mt-2 block w-full text-left">
       <h3 className="text-sm font-semibold leading-snug">{task.title}</h3>
       {task.company_name && <p className="mt-1 text-xs font-medium text-primary">{task.company_name}</p>}
+      {task.project && <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground"><FolderKanban className="h-3 w-3" />{task.project.name}</p>}
     </button>
     <div className="mt-3 flex flex-wrap gap-1.5">
       <Badge variant="outline" className={priorityStyle[task.priority]}>{task.priority === "alta" && <AlertTriangle />}{priorityLabel[task.priority]}</Badge>
       {task.request_type && <Badge variant="secondary">{requestTypeLabel[task.request_type]}</Badge>}
       {task.task_attachments.length > 0 && <Badge variant="outline"><Paperclip />{task.task_attachments.length}</Badge>}
-      {task.kind === "chamado" && !task.client_id && <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800"><AlertTriangle />Sem cliente</Badge>}
+      {task.kind === "chamado" && !task.client_id && <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-300"><AlertTriangle />Sem cliente</Badge>}
     </div>
     {(task.requester_name || task.adjustment_page) && <div className="mt-3 space-y-1.5 border-t pt-3 text-xs text-muted-foreground">
       {task.requester_name && <p className="flex items-center gap-1.5"><UserRound className="h-3.5 w-3.5" />{task.requester_name}</p>}
@@ -114,7 +121,7 @@ function TaskCard({ task, onOpen, onDragStart, onStatusChange }: {
   </article>
 }
 
-function TaskDetail({ task, open, onOpenChange, clients, onLinkClient }: { task: Task | null; open: boolean; onOpenChange: (open: boolean) => void; clients: ClientOption[]; onLinkClient: (taskId: string, clientId: string | null) => void }) {
+function TaskDetail({ task, open, onOpenChange, clients, onLink }: { task: Task | null; open: boolean; onOpenChange: (open: boolean) => void; clients: ClientOption[]; onLink: (taskId: string, link: { clientId: string | null; projectId: string | null }) => void }) {
   if (!task) return null
   const photos = task.task_attachments.filter(file => !file.mime_type?.startsWith("audio/"))
   const audios = task.task_attachments.filter(file => file.mime_type?.startsWith("audio/"))
@@ -136,13 +143,13 @@ function TaskDetail({ task, open, onOpenChange, clients, onLinkClient }: { task:
             <section><h3 className="text-sm font-semibold">Página / código do componente</h3><div className="mt-2 rounded-lg border bg-muted/30 p-3 font-mono text-sm">{task.adjustment_page}</div></section>
           )}
           {task.request_type === "ajuste" && task.in_development && (
-            <section className="flex items-start gap-2 rounded-lg border border-blue-300 bg-blue-50 p-3 text-sm text-blue-900">
+            <section className="flex items-start gap-2 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 text-sm text-sky-300">
               <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
               <p>Cliente informou que o projeto está em desenvolvimento (direito a até 3 ajustes por página sem custo).</p>
             </section>
           )}
           {(task.request_type === "nova_funcionalidade" || task.request_type === "ajuste") && (
-            <section className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${task.cost_acknowledged ? "border-amber-300 bg-amber-50 text-amber-900" : "border-red-300 bg-red-50 text-red-800"}`}>
+            <section className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${task.cost_acknowledged ? "border-amber-500/30 bg-amber-500/10 text-amber-300" : "border-red-500/30 bg-red-500/10 text-red-300"}`}>
               <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
               <p>Ciência do custo adicional: <strong>{task.cost_acknowledged ? "Sim" : "Não"}</strong></p>
             </section>
@@ -175,20 +182,11 @@ function TaskDetail({ task, open, onOpenChange, clients, onLinkClient }: { task:
           )}
         </div>
         <aside className="space-y-4 rounded-xl border bg-muted/20 p-4">
-          {task.company_name && <div><p className="text-xs text-muted-foreground">Empresa (digitada no chamado)</p><p className="mt-1 text-sm font-semibold">{task.company_name}</p></div>}
-          {task.kind === "chamado" && (
-            <div>
-              <p className="text-xs text-muted-foreground">Cliente cadastrado</p>
-              {!task.client_id && <p className="mt-1 flex items-center gap-1.5 text-xs text-amber-700"><AlertTriangle className="h-3.5 w-3.5" />Não vinculado — classifique abaixo</p>}
-              <Select value={task.client_id ?? "none"} onValueChange={v => onLinkClient(task.id, v === "none" ? null : v)}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Selecionar cliente" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Não vinculado</SelectItem>
-                  {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
+          {task.kind === "chamado" && task.company_name && <div><p className="text-xs text-muted-foreground">Empresa (digitada no chamado)</p><p className="mt-1 text-sm font-semibold">{task.company_name}</p></div>}
+          <div className="space-y-1">
+            {task.kind === "chamado" && !task.client_id && <p className="flex items-center gap-1.5 text-xs text-amber-300"><AlertTriangle className="h-3.5 w-3.5" />Cliente não vinculado — classifique abaixo</p>}
+            <ClientProjectPicker layout="stack" clients={clients} clientId={task.client_id} projectId={task.project_id ?? null} onChange={link => onLink(task.id, link)} />
+          </div>
           {task.requester_name && <div><p className="text-xs text-muted-foreground">Autor do chamado</p><p className="mt-1 text-sm font-semibold">{task.requester_name}</p></div>}
           <div><p className="text-xs text-muted-foreground">Aberto em</p><p className="mt-1 text-sm font-medium">{new Date(task.created_at).toLocaleString("pt-BR")}</p></div>
           {task.due_date && <div><p className="text-xs text-muted-foreground">Prazo</p><p className="mt-1 text-sm font-medium">{new Date(task.due_date).toLocaleDateString("pt-BR")}</p></div>}
@@ -210,6 +208,14 @@ export function TicketKanban() {
   const [query, setQuery] = useState("")
   const [priority, setPriority] = useState("all")
   const [clients, setClients] = useState<ClientOption[]>([])
+  const [pendingTaskId, setPendingTaskId] = useState<string | null>(null)
+  useQueryParam("tarefa", setPendingTaskId)
+  useEffect(() => {
+    if (!pendingTaskId || loading) return
+    const found = tasks.find(t => t.id === pendingTaskId)
+    if (found) setSelected(found)
+    setPendingTaskId(null)
+  }, [pendingTaskId, loading, tasks])
 
   useEffect(() => {
     fetch("/api/tasks")
@@ -223,29 +229,31 @@ export function TicketKanban() {
       .catch(() => {})
   }, [])
 
-  async function linkClient(taskId: string, clientId: string | null) {
+  async function linkTask(taskId: string, link: { clientId: string | null; projectId: string | null }) {
     const previous = tasks
-    setTasks(current => current.map(t => (t.id === taskId ? { ...t, client_id: clientId } : t)))
-    setSelected(current => (current && current.id === taskId ? { ...current, client_id: clientId } : current))
+    const patch = { client_id: link.clientId, project_id: link.projectId }
+    setTasks(current => current.map(t => (t.id === taskId ? { ...t, ...patch } : t)))
+    setSelected(current => (current && current.id === taskId ? { ...current, ...patch } : current))
     try {
       const response = await fetch(`/api/tasks/${taskId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ client_id: clientId }),
+        body: JSON.stringify(patch),
       })
-      if (!response.ok) throw new Error("Falha ao vincular cliente")
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || "Falha ao vincular")
       const payload = await response.json()
       setTasks(current => current.map(t => (t.id === taskId ? payload.task : t)))
       setSelected(current => (current && current.id === taskId ? payload.task : current))
-    } catch {
+    } catch (error) {
       setTasks(previous)
-      alert("Não foi possível vincular o cliente.")
+      setSelected(current => (current && current.id === taskId ? previous.find(t => t.id === taskId) ?? current : current))
+      alert(error instanceof Error ? error.message : "Não foi possível vincular.")
     }
   }
 
   const visible = useMemo(
     () => tasks.filter(task => (priority === "all" || task.priority === priority) &&
-      `${task.os_number ?? ""} ${task.company_name ?? ""} ${task.title} ${task.requester_name ?? ""}`.toLowerCase().includes(query.toLowerCase())),
+      `${task.os_number ?? ""} ${task.company_name ?? ""} ${task.project?.name ?? ""} ${task.title} ${task.requester_name ?? ""}`.toLowerCase().includes(query.toLowerCase())),
     [tasks, query, priority],
   )
 
@@ -277,9 +285,9 @@ export function TicketKanban() {
 
   return <>
     <div className="grid gap-3 md:grid-cols-[minmax(240px,1fr)_180px_auto]">
-      <div className="relative"><Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><Input className="pl-9" value={query} onChange={e => setQuery(e.target.value)} placeholder="Buscar OS, empresa, título ou solicitante" /></div>
+      <div className="relative"><Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><Input className="pl-9" value={query} onChange={e => setQuery(e.target.value)} placeholder="Buscar OS, cliente, projeto, título ou solicitante" /></div>
       <Select value={priority} onValueChange={setPriority}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Todas as prioridades</SelectItem><SelectItem value="alta">Prioridade alta</SelectItem><SelectItem value="media">Prioridade média</SelectItem><SelectItem value="baixa">Prioridade baixa</SelectItem></SelectContent></Select>
-      <NewTaskForm onCreated={task => setTasks(current => [task, ...current])} />
+      <NewTaskForm clients={clients} onCreated={task => setTasks(current => [task, ...current])} />
     </div>
     <div className="flex gap-4 overflow-x-auto pb-3">
       {columns.map(column => {
@@ -306,6 +314,6 @@ export function TicketKanban() {
       <span className="flex items-center gap-1.5"><CalendarClock className="h-4 w-4" />Arraste ou use o seletor no card para mudar de etapa</span>
       <span className="flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4" />Persistido no Supabase</span>
     </div>
-    <TaskDetail task={selected} open={Boolean(selected)} onOpenChange={open => { if (!open) setSelected(null) }} clients={clients} onLinkClient={linkClient} />
+    <TaskDetail task={selected} open={Boolean(selected)} onOpenChange={open => { if (!open) setSelected(null) }} clients={clients} onLink={linkTask} />
   </>
 }
